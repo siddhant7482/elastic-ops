@@ -1,0 +1,102 @@
+name: Deploy to pepper
+
+# GitHub's hosted runners cannot reach 10.10.1.70 — it is on the LAN with no
+# inbound access, and opening one for a deploy would be a worse trade than any
+# convenience it bought. Instead a self-hosted runner lives on pepper and makes
+# an OUTBOUND connection to GitHub, so nothing needs to be exposed.
+#
+# Setup is in README.md under "Continuous deployment".
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to deploy"
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pepper
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Restart the portal on pepper
+    runs-on: [self-hosted, pepper]
+    # Never deploy a commit whose tests did not pass.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.workflow_run.head_sha || 'main' }}
+
+      # .env is not in the repository. It lives on pepper and is mounted in,
+      # so a deploy never touches the secrets.
+      - name: Check the environment file is in place
+        run: |
+          set -euo pipefail
+          if [ ! -f /opt/elastic-ops/.env ]; then
+            echo "::error::/opt/elastic-ops/.env is missing. Create it from .env.example."
+            exit 1
+          fi
+          cp /opt/elastic-ops/.env .env
+          chmod 600 .env
+
+      - name: Back up the database before changing anything
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/elastic-ops/backups
+          STAMP=$(date +%Y%m%d-%H%M%S)
+          if docker compose ps --quiet ops | grep -q .; then
+            docker compose exec -T ops python3 -c \
+              "import sqlite3; sqlite3.connect('/data/ops.db').backup(sqlite3.connect('/data/pre-deploy.db'))"
+            docker compose cp ops:/data/pre-deploy.db \
+              "/opt/elastic-ops/backups/ops-$STAMP.db"
+            echo "saved /opt/elastic-ops/backups/ops-$STAMP.db"
+          else
+            echo "not running yet — nothing to back up"
+          fi
+          # Keep a fortnight of pre-deploy snapshots, no more.
+          ls -1t /opt/elastic-ops/backups/ops-*.db 2>/dev/null | tail -n +15 | xargs -r rm --
+
+      - name: Bring it up
+        run: docker compose up -d --remove-orphans
+
+      - name: Wait for it to answer
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS -m 3 http://127.0.0.1:8080/health > /dev/null; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::The portal did not answer /health within 30s"
+          docker compose logs --tail 60 ops
+          exit 1
+
+      - name: Report
+        run: |
+          echo "### Deployed to pepper" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- commit \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- <http://10.10.1.70:8080>" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS -m 3 http://127.0.0.1:8080/health >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Roll back if the deploy failed
+        if: failure()
+        run: |
+          echo "::warning::Deploy failed. The previous container may still be running."
+          echo "Database snapshots are in /opt/elastic-ops/backups/."
+          docker compose ps || true

@@ -1,0 +1,19 @@
+# The runtime is standard library only; this just keeps it tidy and catches
+# the mistakes that read as working code.
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "B", "UP", "S"]
+ignore = [
+  "E501",    # line length is checked by the formatter's eye, not the linter
+  "S101",    # assert is fine in tests
+  "S104",    # binding 0.0.0.0 is the point of a server
+  "S310",    # urllib with a configured URL is intended here
+  "S603",    # subprocess with a fixed argument list, never a shell string
+  "S607",    # ping and pvesm are found on PATH by design
+  "UP017",   # datetime.UTC is 3.11+; timezone.utc also runs on the 3.10 box we test from
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S", "B"]

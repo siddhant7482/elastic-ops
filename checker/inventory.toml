@@ -1,0 +1,441 @@
+# Elastic Ops — inventory
+#
+# The parts of the estate that change a few times a year rather than every
+# minute: what the hardware is, what the applications are, who gets told, and
+# what breaks when a host dies. Kept here rather than in the database because
+# it belongs in version control, and because screens to edit it would be more
+# code than the data is worth.
+#
+# Live numbers (memory in use, pool fullness, backup ages) are NOT here. Those
+# are posted in by collector/post_estate.py and stored in the database.
+#
+# Edit, then restart the container.
+
+
+# ---------------------------------------------------------------- hosts
+
+[[hosts]]
+name     = "cinnamon"
+address  = "10.10.1.80"
+model    = ""                # not recorded — fill this in
+tag      = ""
+warranty = ""
+memory   = "125 GB"
+storage  = ""
+note     = "CFP, domain controller, file server, backup relay for proxmox"
+state    = "warn"
+state_label = "Check"
+
+[[hosts]]
+name     = "proxmox"
+address  = "10.10.1.10"
+model    = "HPE ProLiant Gen10"
+tag      = ""
+warranty = ""
+memory   = "125 GB ECC"
+storage  = "8 bays, 2 arrays, all occupied"
+note     = "ArrearsMan and all six WinMan workstations. Production sits on a RAID 0."
+state    = "warn"
+state_label = "Check"
+
+[[hosts]]
+name     = "yam"
+address  = "10.10.10.22"
+model    = "HPE · iLO 10.10.1.101"
+tag      = ""
+warranty = ""
+memory   = "125 GB"
+storage  = "RAID 6, 22 TB"
+note     = "Backup store, app fleet, AWS imports. The restore target if anything dies."
+state    = "ok"
+state_label = "Healthy"
+
+[[hosts]]
+name     = "pepper"
+address  = "10.10.1.70"
+model    = ""
+tag      = ""
+warranty = ""
+memory   = "128 GB"
+storage  = ""
+note     = "Knowledge base, Vaultwarden, messenger gateway, this portal"
+state    = "ok"
+state_label = "Healthy"
+
+[[hosts]]
+name     = "networkserver"
+address  = "10.10.1.30"
+model    = "Dell OptiPlex 3070"
+tag      = ""
+warranty = ""
+memory   = "15 GB, no ECC"
+storage  = "1 NVMe, no redundancy"
+note     = "CCTV management, Zabbix, FusionPBX. Froze for 36h on 4 Oct 2026."
+state    = "bad"
+state_label = "No redundancy"
+
+
+# ---------------------------------------------------------------- drives
+
+[[drives]]
+host = "proxmox"
+bay  = "1I:3:1"
+drive = "SATA SSD, 1 TB"
+array = "Array B — RAID 0"
+state = "ok"
+state_label = "Healthy"
+
+[[drives]]
+host = "proxmox"
+bay  = "1I:3:2"
+drive = "SATA SSD, 1 TB"
+array = "Array B — RAID 0"
+state = "ok"
+state_label = "Healthy"
+
+[[drives]]
+host = "proxmox"
+bay  = "1I:3:3 to 2I:3:7"
+drive = "SAS HDD, 300 GB x5"
+array = "Array A — RAID 5"
+state = "ok"
+state_label = "Healthy"
+
+[[drives]]
+host = "proxmox"
+bay  = "2I:3:8"
+drive = "SAS HDD, 300 GB"
+array = "Array A — RAID 5"
+state = "bad"
+state_label = "Failed"
+note  = "Array A only holds a stopped VM. The healthy RAID 0 carrying production matters more."
+
+[[drives]]
+host = "networkserver"
+bay  = "nvme0n1"
+drive = "NVMe, 512 GB"
+array = "Single disk"
+state = "warn"
+state_label = "Single point"
+
+[[drives]]
+host = "yam"
+bay  = "sdc"
+drive = "RAID 6 volume, 22 TB"
+array = "Backup store"
+state = "ok"
+state_label = "Healthy"
+
+
+# ---------------------------------------------------------------- what breaks
+#
+# The question nobody can answer at 3am unless it was written down first.
+
+[[blast]]
+host = "cinnamon"
+stops = "CFP and WinMan, domain logins, file shares, the backup relay for proxmox"
+notices = "Everyone, immediately"
+recovery = "Restore to yam — about 3 hours for CFP alone"
+
+[[blast]]
+host = "proxmox"
+stops = "ArrearsMan and all six WinMan workstations"
+notices = "Finance, and anyone using WinMan"
+recovery = "Restore to yam — about 2 hours for all seven"
+
+[[blast]]
+host = "yam"
+stops = "Every backup in the estate, the app fleet, the AWS imports"
+notices = "Nobody at first — then everything"
+recovery = "No second copy exists anywhere"
+
+[[blast]]
+host = "pepper"
+stops = "Knowledge base, password manager, messenger gateway, this portal"
+notices = "The tech team"
+recovery = "Restore from the backup store"
+
+[[blast]]
+host = "networkserver"
+stops = "CCTV management and all monitoring"
+notices = "Security, and every alert stops"
+recovery = "Nothing to restore from"
+
+
+# ---------------------------------------------------------------- applications
+#
+# icon is one of: db calc chart cart box book server cam msg doc globe eye shield
+
+[[apps]]
+name = "CFP / WinMan"
+group = "Business"
+url = "https://10.10.1.65"
+target = "cfp-server\\CFP"
+icon = "db"
+check = "CFP / WinMan SQL"
+
+[[apps]]
+name = "ArrearsMan"
+group = "Business"
+url = ""
+target = "10.10.1.35"
+icon = "calc"
+check = "ArrearsMan SQL"
+
+[[apps]]
+name = "Bigcapital"
+group = "Business"
+url = "http://10.10.1.102:3000"
+target = "bigcapital-prod:3000"
+icon = "chart"
+check = "Bigcapital"
+
+[[apps]]
+name = "Odoo"
+group = "Business"
+url = "http://10.10.1.103:8069"
+target = "10.10.1.103:8069"
+icon = "cart"
+check = "Odoo"
+
+[[apps]]
+name = "cinnamon"
+group = "Infrastructure"
+url = "https://10.10.1.80:8006"
+target = "10.10.1.80:8006"
+icon = "server"
+check = "cinnamon"
+
+[[apps]]
+name = "proxmox"
+group = "Infrastructure"
+url = "https://10.10.1.10:8006"
+target = "10.10.1.10:8006"
+icon = "server"
+check = "proxmox"
+
+[[apps]]
+name = "yam"
+group = "Infrastructure"
+url = "https://10.10.10.22:8006"
+target = "10.10.10.22:8006"
+icon = "server"
+check = "yam"
+
+[[apps]]
+name = "pepper"
+group = "Infrastructure"
+url = "https://10.10.1.70:8006"
+target = "10.10.1.70:8006"
+icon = "server"
+check = "pepper"
+
+[[apps]]
+name = "networkserver"
+group = "Infrastructure"
+url = "https://10.10.1.30:8006"
+target = "10.10.1.30:8006"
+icon = "server"
+check = "networkserver"
+
+[[apps]]
+name = "Backup store"
+group = "Infrastructure"
+url = "https://10.10.10.22:8007"
+target = "10.10.10.22:8007"
+icon = "db"
+check = "Backup store"
+
+[[apps]]
+name = "Zabbix"
+group = "Infrastructure"
+url = "http://10.10.1.32/zabbix/"
+target = "10.10.1.32/zabbix"
+icon = "eye"
+check = "Zabbix"
+
+[[apps]]
+name = "Knowledge base"
+group = "Internal"
+url = "https://10.10.1.91"
+target = "10.10.1.91"
+icon = "book"
+check = "Knowledge base"
+
+[[apps]]
+name = "Vaultwarden"
+group = "Internal"
+url = "https://10.10.1.90"
+target = "10.10.1.90"
+icon = "shield"
+check = "Vaultwarden"
+
+[[apps]]
+name = "Messenger gateway"
+group = "Internal"
+url = "https://10.10.1.92"
+target = "10.10.1.92"
+icon = "msg"
+check = "Messenger gateway"
+
+
+# ---------------------------------------------------------------- alert routing
+#
+# Almost nothing deserves to wake you. Keeping "page" to five things is what
+# keeps the channel worth reading.
+
+[[routing]]
+level = "Page"
+state = "bad"
+applies = "CFP SQL, cinnamon, proxmox, backup store, nightly backup"
+channel = "WhatsApp"
+who = "Siddhant"
+when = "Any hour"
+
+[[routing]]
+level = "Notify"
+state = "warn"
+applies = "Everything else that goes down"
+channel = "WhatsApp"
+who = "Siddhant, Esti"
+when = "08:00 – 18:00, weekdays"
+
+[[routing]]
+level = "Notify"
+state = "warn"
+applies = "Capacity and certificate warnings"
+channel = "Weekly digest"
+who = "Siddhant"
+when = "Mondays 08:00"
+
+[[routing]]
+level = "Quiet"
+state = "dim"
+applies = "Everything inside a maintenance window"
+channel = "Recorded only"
+who = "—"
+when = "Always"
+
+
+# ---------------------------------------------------------------- credentials
+#
+# The portal holds no secrets — only where they live and how old they are.
+# The point of this table is the age column.
+
+[[credentials]]
+name = "sa — SQL Server"
+used_by = "Every WinMan client"
+age = "Unknown"
+stored = "Plaintext in a database table"
+state = "bad"
+state_label = "Rotate now"
+
+[[credentials]]
+name = "winman"
+used_by = "WinMan and ArrearsMan links"
+age = "Over 2 years"
+stored = "Vaultwarden"
+state = "warn"
+state_label = "Review"
+
+[[credentials]]
+name = "arrearsman"
+used_by = "ArrearsMan backend"
+age = "14 months"
+stored = "Vaultwarden"
+state = "warn"
+state_label = "Review"
+
+[[credentials]]
+name = "Zabbix admin"
+used_by = "Monitoring"
+age = "Unknown — was forgotten"
+stored = "Not stored"
+state = "bad"
+state_label = "Rotate now"
+
+[[credentials]]
+name = "Proxmox root x5"
+used_by = "All five hypervisors"
+age = "Unknown"
+stored = "Vaultwarden"
+state = "warn"
+state_label = "Review"
+
+
+# ---------------------------------------------------------------- patching
+
+[[patching]]
+host = "proxmox"
+pending = 237
+security = 41
+last = "Not recorded"
+state = "bad"
+state_label = "Never updated"
+
+[[patching]]
+host = "networkserver"
+pending = 237
+security = 41
+last = "22 Oct 2026"
+state = "warn"
+state_label = "Behind"
+
+[[patching]]
+host = "cinnamon"
+pending = 0
+security = 0
+last = "18 Oct 2026"
+state = "ok"
+state_label = "Current"
+
+[[patching]]
+host = "yam"
+pending = 84
+security = 12
+last = "Not recorded"
+state = "warn"
+state_label = "Behind"
+
+[[patching]]
+host = "pepper"
+pending = 0
+security = 0
+last = "20 Oct 2026"
+state = "ok"
+state_label = "Current"
+
+
+# ---------------------------------------------------------------- restore drills
+#
+# A backup nobody has restored is a hypothesis. Add a row each time you prove one.
+
+[[drills]]
+machine = "1100 cfp"
+last = "22 Sep 2026"
+result = "Clone booted, SQL Server started, invoices raised"
+state = "ok"
+
+[[drills]]
+machine = "203 cfp-machine-3"
+last = "22 Sep 2026"
+result = "Clone booted, WinMan connected to CFP"
+state = "ok"
+
+[[drills]]
+machine = "110 arrearsman-sql"
+last = "Never"
+result = "—"
+state = "bad"
+
+[[drills]]
+machine = "9501 docs"
+last = "Never"
+result = "—"
+state = "bad"
+
+[[drills]]
+machine = "100 AD-1"
+last = "Never"
+result = "No backup exists to test"
+state = "bad"

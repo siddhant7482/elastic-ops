@@ -1,0 +1,8 @@
+# Normalise to LF in the repository. Without this a Windows checkout can push
+# CRLF, and a CRLF shebang on Linux fails with "bad interpreter: ...^M" —
+# which is exactly how the collector would break on a Proxmox host.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gz  binary

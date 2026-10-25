@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in — Elastic Ops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#EBEEF3; --lt:#FFFFFF; --dk:#C7CEDB;
+  --ink:#293341; --ink-2:#5C6879; --ink-3:#95A2B3;
+  --forest:#0A5A43; --forest-2:#0E7456; --ok:#0A7557; --bad:#BE123C;
+  --r-lg:9px 9px 20px var(--dk), -9px -9px 20px var(--lt);
+  --r-sm:3px 3px 8px var(--dk), -3px -3px 8px var(--lt);
+  --i-md:inset 4px 4px 9px var(--dk), inset -4px -4px 9px var(--lt);
+  --sans:"Plus Jakarta Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;place-items:center;
+  padding:40px max(16px,env(safe-area-inset-left,0px)) 40px max(16px,env(safe-area-inset-right,0px))}
+.box{width:100%;max-width:380px;border-radius:26px;box-shadow:var(--r-lg);padding:32px 30px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+.bmark{width:44px;height:44px;border-radius:15px;flex:none;display:grid;place-items:center;
+  background:var(--forest);box-shadow:var(--r-sm), inset 1px 1px 2px rgba(255,255,255,.18)}
+.bmark svg{width:21px;height:21px;stroke:#A8E0C4;fill:none;stroke-width:2;stroke-linecap:round}
+.brand b{display:block;font-size:16px;font-weight:800;letter-spacing:-.03em;line-height:1.2}
+.brand i{display:block;font-style:normal;font-family:var(--mono);font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+h1{margin:0 0 4px;font-size:20px;font-weight:800;letter-spacing:-.03em}
+.sub{margin:0 0 22px;font-size:12.5px;color:var(--ink-3)}
+label{display:block;font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 7px}
+input{width:100%;font:inherit;font-size:14px;color:var(--ink);background:transparent;border:0;
+  border-radius:16px;padding:13px 16px;box-shadow:var(--i-md);margin-bottom:16px}
+input:focus{outline:none;box-shadow:var(--i-md), 0 0 0 2px var(--ok)}
+button{width:100%;appearance:none;border:0;font:inherit;font-size:13.5px;font-weight:700;
+  padding:13px 20px;border-radius:999px;cursor:pointer;margin-top:6px;
+  background:var(--forest);color:#EAF6EF;
+  box-shadow:var(--r-sm), inset 1px 1px 2px rgba(255,255,255,.15)}
+button:hover{background:var(--forest-2)}
+button:active{box-shadow:var(--i-md)}
+.err{margin:0 0 16px;font-size:12.5px;color:var(--bad);background:#F7DFE5;
+  border-radius:14px;padding:11px 14px}
+.err code{font-family:var(--mono);font-size:11.5px;word-break:break-all}
+.foot{margin-top:22px;font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-3);text-align:center}
+</style>
+</head>
+<body>
+<form class="box" method="post" action="/login">
+  <div class="brand">
+    <span class="bmark"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2" fill="none"/></svg></span>
+    <span><b>Elastic Ops</b><i>Estate console</i></span>
+  </div>
+  <h1>Sign in</h1>
+  <p class="sub">Tech team only. Accounts are created on the host.</p>
+  <!--MESSAGE-->
+  <label for="u">Username</label>
+  <input id="u" name="username" autocomplete="username" autofocus required>
+  <label for="p">Password</label>
+  <input id="p" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+  <div class="foot">Elastic Group · internal</div>
+</form>
+</body>
+</html>

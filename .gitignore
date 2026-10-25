@@ -1,0 +1,22 @@
+# Secrets. The real values live here and never in the repository.
+.env
+*.env
+!.env.example
+
+# Runtime state
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

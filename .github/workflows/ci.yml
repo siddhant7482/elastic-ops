@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    name: Repository guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The runtime promises to import nothing outside the standard library,
+      # and checks.toml promises to carry no secrets. Both are easy to break
+      # by accident and neither would fail until it mattered.
+      - name: Guards
+        run: python3 tests/hygiene.py
+
+      - name: Lint
+        run: |
+          pip install --quiet ruff==0.6.9
+          ruff check --output-format=github .
+
+  test:
+    name: Smoke tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor (tomllib). 3.12 is what the container runs.
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Starts the real server against a temporary database and walks through
+      # login, every endpoint, CSRF, ingest, check-in and path traversal.
+      - name: Smoke tests
+        run: python3 tests/smoke.py
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet

@@ -1,0 +1,190 @@
+# Elastic Ops — checker configuration
+#
+# Edit this file, then restart the container. Everything here is read at startup.
+# Types: tcp | http | ping
+#
+#   interval  seconds between checks          (default from [settings])
+#   retries   consecutive failures before it alerts
+#   severity  "page" wakes you, "notify" is a message, "quiet" only records
+
+[settings]
+db                = "/data/ops.db"
+listen_port       = 8080
+default_interval  = 60
+default_retries   = 3
+timeout           = 5
+
+web_dir           = "web"           # the portal's static files
+inventory         = "inventory.toml"
+
+# Sessions. cookie_secure must stay false until the portal is behind HTTPS —
+# a Secure cookie over plain http is simply never sent, and login silently
+# fails with no error anywhere.
+session_hours     = 12
+cookie_secure     = false
+
+# Shared secret for collector/post_estate.py, sent as the X-Ingest-Token
+# header. Generate one with:  python3 -c "import secrets;print(secrets.token_urlsafe(32))"
+# Without it, backup and host metrics cannot be posted in.
+ingest_token      = ""
+
+# Where state changes are sent. Leave empty to only log.
+# The WhatsApp gateway on pepper goes here once we know its API.
+webhook_url       = ""
+webhook_header    = ""          # e.g. "Authorization: Bearer xyz"
+
+# Dead-man's switch: this checker pings the URL every cycle so an OUTSIDE
+# service tells you when the checker itself has died. Without this, nothing
+# reports the monitoring going down — which is exactly what happened on 4 Oct.
+deadman_url       = ""          # e.g. a healthchecks.io ping URL
+
+
+# Alerts are suppressed inside these windows. Backups run 02:00–04:00 and the
+# guest agents time out, which would otherwise train you to ignore the channel.
+[[maintenance]]
+name  = "Nightly backup window"
+start = "02:00"
+end   = "04:15"
+
+[[maintenance]]
+name  = "Backup store verify"
+days  = ["sun"]
+start = "03:00"
+end   = "06:00"
+
+
+# ---------------------------------------------------------------- business
+
+[[checks]]
+name = "CFP / WinMan SQL"
+group = "Business"
+type = "tcp"
+target = "10.10.1.65:63143"
+severity = "page"
+
+[[checks]]
+name = "ArrearsMan SQL"
+group = "Business"
+type = "tcp"
+target = "10.10.1.35:1433"
+severity = "notify"
+
+[[checks]]
+name = "Bigcapital"
+group = "Business"
+type = "http"
+target = "http://10.10.1.102:3000/"
+
+[[checks]]
+name = "Odoo"
+group = "Business"
+type = "http"
+target = "http://10.10.1.103:8069/web/login"
+
+# ------------------------------------------------------------ infrastructure
+
+[[checks]]
+name = "cinnamon"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.1.80:8006/"
+severity = "page"
+
+[[checks]]
+name = "proxmox"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.1.10:8006/"
+severity = "page"
+
+[[checks]]
+name = "yam"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.10.22:8006/"
+
+[[checks]]
+name = "pepper"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.1.70:8006/"
+
+[[checks]]
+name = "networkserver"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.1.30:8006/"
+
+[[checks]]
+name = "Backup store"
+group = "Infrastructure"
+type = "https"
+target = "https://10.10.10.22:8007/"
+severity = "page"
+
+[[checks]]
+name = "Zabbix"
+group = "Infrastructure"
+type = "http"
+target = "http://10.10.1.32/zabbix/"
+
+# -------------------------------------------------------------- internal
+
+[[checks]]
+name = "Knowledge base"
+group = "Internal"
+type = "https"
+target = "https://10.10.1.91/"
+
+[[checks]]
+name = "Vaultwarden"
+group = "Internal"
+type = "https"
+target = "https://10.10.1.90/"
+severity = "notify"
+
+[[checks]]
+name = "Messenger gateway"
+group = "Internal"
+type = "https"
+target = "https://10.10.1.92/"
+
+
+# ---------------------------------------------------------------- jobs
+#
+# A job calls  http://<checker>:8080/checkin/<token>  when it finishes.
+# If it has not called within grace_hours, it goes down. Silence is the alert.
+#
+# Add this to the end of each script or cron line:
+#   curl -fsS -m 10 http://10.10.1.70:8080/checkin/nightly-backup || true
+
+[[jobs]]
+name = "Nightly machine backup"
+token = "nightly-backup"
+grace_hours = 26
+severity = "page"
+
+[[jobs]]
+name = "Backup log collector"
+token = "backup-collector"
+grace_hours = 26
+
+[[jobs]]
+name = "Backup store verify"
+token = "pbs-verify"
+grace_hours = 192          # weekly, so 8 days
+
+[[jobs]]
+name = "SQL dumps"
+token = "sql-dumps"
+grace_hours = 26
+
+[[jobs]]
+name = "TradePeg order parker"
+token = "tradepeg"
+grace_hours = 2
+
+[[jobs]]
+name = "Fresha reports"
+token = "fresha"
+grace_hours = 192
