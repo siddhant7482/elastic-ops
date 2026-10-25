@@ -30,6 +30,11 @@
   --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
+/* The browser's own [hidden] rule loses to any author rule that sets display,
+   so el.hidden silently does nothing on .boot (grid) and .row (flex). The
+   artifact preview injects this for you; a standalone page has to say it. */
+[hidden]{display:none!important}
+img{max-width:100%}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--paper)}
 h1,h2,h3{margin:0;letter-spacing:-.022em}
