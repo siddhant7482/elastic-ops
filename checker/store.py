@@ -114,6 +114,19 @@ CREATE INDEX IF NOT EXISTS pool_hist_k ON pool_history(host, name, ts);
 CREATE TABLE IF NOT EXISTS hostmetrics (
   host TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL
 );
+
+-- Every guest the collectors can see. The point of this table is subtraction:
+-- what exists, minus what is checked, is what nobody is watching.
+CREATE TABLE IF NOT EXISTS guests (
+  key        TEXT PRIMARY KEY,      -- host/vmid
+  vmid       TEXT,
+  name       TEXT,
+  host       TEXT,
+  kind       TEXT,                  -- qemu | lxc
+  status     TEXT,                  -- running | stopped
+  addresses  TEXT,                  -- comma separated, from the guest agent
+  updated_ts INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS hostmetrics_k ON hostmetrics(host, ts);
 
 CREATE TABLE IF NOT EXISTS users (
@@ -365,6 +378,54 @@ class Portal:
             return round(per_week), None
         free = pool["total_bytes"] - (pool["used_bytes"] or 0)
         return round(per_week), int(free / (per_week / 7))
+
+    # -- guests, and what nobody is watching -----------------------------
+    def guests(self):
+        return self.s.q("SELECT * FROM guests ORDER BY host, CAST(vmid AS INTEGER)")
+
+    def put_guests(self, host, rows):
+        """Replace this host's guest list. Replaced rather than merged, so a
+        guest that has been deleted stops being reported as unmonitored."""
+        t = now()
+        self.s.x("DELETE FROM guests WHERE host=?", (host,))
+        for r in rows:
+            self.s.x(
+                "INSERT INTO guests(key,vmid,name,host,kind,status,addresses,updated_ts)"
+                " VALUES(?,?,?,?,?,?,?,?)",
+                (f"{host}/{r.get('vmid')}", str(r.get("vmid")), r.get("name"), host,
+                 r.get("kind"), r.get("status"),
+                 ",".join(r.get("addresses") or []), t))
+        return len(rows)
+
+    def coverage(self, checks):
+        """Match guests against checks by address first, then by name.
+
+        A guest counts as watched if some check points at one of its
+        addresses, or if a check's name matches the guest's. Deliberately
+        generous: the aim is to surface the genuinely forgotten, not to
+        produce a long list of near-misses nobody will read.
+        """
+        targets, names = [], []
+        for c in checks:
+            targets.append((c.get("target") or "").lower())
+            names.append((c.get("name") or "").lower())
+
+        out = []
+        for g in self.guests():
+            addrs = [a for a in (g["addresses"] or "").split(",") if a]
+            gname = (g["name"] or "").lower()
+            hit = None
+            for i, t in enumerate(targets):
+                if any(a and a in t for a in addrs):
+                    hit = names[i]
+                    break
+            if not hit and gname:
+                for n in names:
+                    if gname == n or (len(gname) > 3 and gname in n):
+                        hit = n
+                        break
+            out.append({**g, "addresses": addrs, "watched_by": hit})
+        return out
 
     def put_host(self, host, payload):
         self.s.x("INSERT INTO hostmetrics(host,ts,payload) VALUES(?,?,?)",

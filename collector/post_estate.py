@@ -97,6 +97,62 @@ def pools():
     return out
 
 
+def guests_with_addresses(node):
+    """Every guest on this node, with whatever addresses the agent will admit.
+
+    This is what lets the portal subtract: everything that exists, minus
+    everything that is checked, is everything nobody is watching. The agent
+    call is per guest and only worth making for running ones, so the daily
+    run does it and the ten-minute metrics run does not.
+    """
+    out = []
+    for kind in ("qemu", "lxc"):
+        raw = sh("pvesh", "get", f"/nodes/{node}/{kind}", "--output-format", "json")
+        try:
+            items = json.loads(raw or "[]")
+        except ValueError:
+            continue
+        for g in items:
+            vmid = str(g.get("vmid"))
+            row = {"vmid": vmid, "name": g.get("name") or vmid, "kind": kind,
+                   "status": g.get("status"), "addresses": []}
+            if g.get("status") == "running":
+                row["addresses"] = guest_addresses(node, kind, vmid)
+            out.append(row)
+    return out
+
+
+def guest_addresses(node, kind, vmid):
+    if kind == "qemu":
+        raw = sh("pvesh", "get", f"/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces",
+                 "--output-format", "json")
+        try:
+            data = json.loads(raw or "{}")
+        except ValueError:
+            return []                       # no guest agent, which is common
+        ifaces = data.get("result", data) if isinstance(data, dict) else data
+        return _addrs_from(ifaces, "ip-addresses", "ip-address")
+
+    raw = sh("pvesh", "get", f"/nodes/{node}/lxc/{vmid}/interfaces",
+             "--output-format", "json")
+    try:
+        return _addrs_from(json.loads(raw or "[]"), None, "inet")
+    except ValueError:
+        return []
+
+
+def _addrs_from(ifaces, list_key, addr_key):
+    found = []
+    for i in ifaces if isinstance(ifaces, list) else []:
+        entries = i.get(list_key, []) if list_key else [i]
+        for e in entries if isinstance(entries, list) else []:
+            a = (e.get(addr_key) or "").split("/")[0].strip()
+            # Loopback and link-local say nothing about reachability.
+            if a and not a.startswith(("127.", "::1", "fe80", "169.254")):
+                found.append(a)
+    return sorted(set(found))
+
+
 def backups():
     """One row per guest on this host, with the age of its newest backup.
 
@@ -200,9 +256,13 @@ def main():
 
     host = socket.gethostname().split(".")[0]
     total, used = memory()
-    ok = post(url, token, "/api/ingest/host",
-              {"host": host, "mem_total": total, "mem_used": used,
-               "pools": pools(), "at": int(time.time())}, a.dry_run)
+    payload = {"host": host, "mem_total": total, "mem_used": used,
+               "pools": pools(), "at": int(time.time())}
+    # The metrics run omits 'guests' entirely rather than sending an empty
+    # list, which the portal would read as "this host has none".
+    if not a.metrics_only:
+        payload["guests"] = guests_with_addresses(host)
+    ok = post(url, token, "/api/ingest/host", payload, a.dry_run)
 
     if not a.metrics_only:
         rows = backups()

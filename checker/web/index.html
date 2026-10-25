@@ -379,8 +379,16 @@ textarea{resize:vertical}
         <div class="lg"><span><i style="background:var(--ok);opacity:.32"></i>Fine</span>
           <span><i style="background:var(--warn)"></i>Partial</span><span><i style="background:var(--bad)"></i>All failed</span></div>
         <div class="seg" id="svcseg"></div></div></div>
-    <div class="tw"><table><thead><tr><th>Service</th><th>Status</th><th>Uptime 30d</th><th>Response</th><th>Last 45 days</th><th>Checked</th></tr></thead><tbody id="svcrows"></tbody></table>
+    <div class="tw mb"><table><thead><tr><th>Service</th><th>Status</th><th>Uptime 30d</th><th>Response</th><th>Last 45 days</th><th>Checked</th></tr></thead><tbody id="svcrows"></tbody></table>
       <div id="svcempty"></div></div>
+
+    <div class="sh"><h2>Running, but nobody is watching</h2><span class="lab" id="gapcount"></span></div>
+    <div class="tw"><table><thead><tr><th>Guest</th><th>Host</th><th>Addresses</th><th>Kind</th><th>State</th></tr></thead><tbody id="gaprows"></tbody></table>
+      <div id="gapempty"></div>
+      <div class="note">Everything the collectors can see, minus everything checked above.
+        A guest counts as watched when a check points at one of its addresses or shares its
+        name. Genuinely disposable ones go in <span class="num">unmonitored_ok</span> in
+        inventory.toml so this list stays worth reading.</div></div>
   </section>
 
   <!-- TIMELINE -->
@@ -571,6 +579,7 @@ function tb(bytes){
   var g=bytes/1073741824;
   return g>=1?g.toFixed(0)+" GB":(bytes/1048576).toFixed(0)+" MB";
 }
+function c0(n){return String(n)}
 function plural(n,w){return n+" "+w+(n===1?"":"s")}
 
 /* ============================================================ pieces */
@@ -774,11 +783,12 @@ function load(){
   return Promise.all([
     api("/api/me"),api("/api/status"),api("/api/inventory"),api("/api/incidents"),
     api("/api/followups"),api("/api/changes"),api("/api/backups"),api("/api/capacity"),
-    api("/api/hosts"),api("/api/events")
+    api("/api/hosts"),api("/api/events"),api("/api/coverage")
   ]).then(function(r){
     S.me=r[0];S.status=r[1];S.inv=r[2];S.incidents=r[3].incidents;S.followups=r[4].followups;
     S.changes=r[5].changes;S.backups=r[6].backups;S.drills=r[6].drills;S.pools=r[7].pools;
     S.hosts=r[8].hosts;S.hostinv=r[8].inventory;S.drives=r[8].drives;S.events=r[9].events;
+    S.cov=r[10];
     renderAll();
   });
 }
@@ -920,6 +930,16 @@ function buildFindings(){
         +". At 100% every machine on it fails writes.",
       cta:"Open hardware",source:"Measured over 30 days"});
   });
+  var gaps=(S.cov&&S.cov.gaps)||[];
+  if(gaps.length)out.push({st:"warn",sev:"Warning",
+    headline:plural(gaps.length,"running guest")+" nothing is checking",
+    where:"Coverage",detail:gaps.slice(0,3).map(function(g){return g.name}).join(", "),
+    view:"services",kicker:"Coverage gap",
+    body:"The collectors can see "+c0(gaps.length)+" running "
+      +(gaps.length===1?"guest":"guests")+" that no check points at, including "
+      +gaps.slice(0,2).map(function(g){return g.name}).join(" and ")
+      +". Nothing would tell you if they stopped.",
+    cta:"See what is unchecked",source:"Guests minus checks"});
   (S.drives||[]).filter(function(d){return d.state==="bad"}).forEach(function(d){
     out.push({st:"warn",sev:"Warning",headline:(d.state_label||"Drive fault")+" in "+d.array,
       where:d.host,detail:"bay "+d.bay,view:"hardware",kicker:"Hardware · "+d.host,
@@ -947,6 +967,27 @@ function renderServices(){
       +'<td>'+strip(s.history,s.name)+'</td>'
       +'<td class="num dim">'+ago(s.last_run)+'</td></tr>'}).join("");
   applyFilter();
+  renderGaps();
+}
+
+function renderGaps(){
+  var c=S.cov||{gaps:[],total:0};
+  var g=c.gaps||[];
+  H("gapcount").textContent=c.total
+    ? g.length+" of "+c.running+" running guests unchecked"
+    : "no guests reported yet";
+  H("gaprows").innerHTML=g.map(function(x){
+    return '<tr><td><div class="two"><b>'+esc(x.name)+'</b><span>'+esc(x.vmid)+'</span></div></td>'
+      +'<td class="dim">'+esc(x.host)+'</td>'
+      +'<td class="num '+(x.addresses.length?'':'dim')+'">'
+        +(x.addresses.length?esc(x.addresses.join(", ")):"no agent — address unknown")+'</td>'
+      +'<td class="dim">'+esc(x.kind)+'</td>'
+      +'<td>'+pill("bad","Unchecked")+'</td></tr>'}).join("");
+  H("gapempty").innerHTML=g.length?""
+    :(c.total?mt("Everything running is checked",
+        c.ignored?c.ignored+" guest(s) are marked as not needing a check.":"")
+      :mt("No guests reported yet",
+        "The daily collector run sends these. Run post_estate.py on a host to fill it in."));
 }
 function applyFilter(){
   var shown=0;

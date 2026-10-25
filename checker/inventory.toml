@@ -439,3 +439,18 @@ machine = "100 AD-1"
 last = "Never"
 result = "No backup exists to test"
 state = "bad"
+
+
+# ---------------------------------------------------------------- coverage
+#
+# Guests that genuinely do not need a check — test clones, shells, things
+# kept only so their disk exists. Anything listed here stops appearing under
+# "Running, but nobody is watching" on the Services page.
+#
+# Keep this list honest. Every entry is a decision that nobody will be told
+# when that machine stops, and the list is only useful while it is short.
+#
+# Use the bare VMID, or host/VMID to be specific:
+#   unmonitored_ok = ["9910", "pepper/9911"]
+
+unmonitored_ok = []

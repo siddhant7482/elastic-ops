@@ -280,6 +280,38 @@ def main():
     check("host metrics come back with a series",
           json.loads(body)["hosts"][0]["host"] == "cinnamon", body[:160])
 
+    print("\ncoverage — what exists, minus what is checked")
+    code, _, _ = c.post_json("/api/ingest/host", {
+        "host": "cinnamon", "mem_total": 1, "mem_used": 1, "pools": [],
+        "guests": [
+            # Checked by address: the loopback check points at this port.
+            {"vmid": "1100", "name": "cfp", "kind": "qemu", "status": "running",
+             "addresses": ["127.0.0.1"]},
+            # Running, no check anywhere — the whole point of the feature.
+            {"vmid": "100", "name": "AD-1", "kind": "qemu", "status": "running",
+             "addresses": ["10.10.1.21"]},
+            # Stopped, so not a gap even though nothing checks it.
+            {"vmid": "999", "name": "old-backupserver", "kind": "qemu",
+             "status": "stopped", "addresses": []},
+        ]}, tok)
+    check("guests accepted", code == 200, code)
+
+    code, body, _ = c.get("/api/coverage")
+    cov = json.loads(body)
+    gaps = {g["name"] for g in cov["gaps"]}
+    check("guest matched to a check by address is not a gap", "cfp" not in gaps, gaps)
+    check("running guest with no check is a gap", "AD-1" in gaps, gaps)
+    check("stopped guest is not reported as a gap", "old-backupserver" not in gaps, gaps)
+    check("counts add up", cov["total"] == 3 and cov["running"] == 2,
+          (cov["total"], cov["running"]))
+
+    # A metrics-only post omits 'guests' and must not wipe the list.
+    c.post_json("/api/ingest/host", {"host": "cinnamon", "mem_total": 2,
+                                     "mem_used": 1, "pools": []}, tok)
+    code, body, _ = c.get("/api/coverage")
+    check("a metrics-only post does not wipe the guest list",
+          json.loads(body)["total"] == 3, json.loads(body)["total"])
+
     print("\njob check-in")
     before = store.get("Nightly machine backup")
     code, body, _ = c.get("/checkin/nightly-backup")

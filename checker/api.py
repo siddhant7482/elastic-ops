@@ -273,6 +273,23 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                                         "inventory": inventory.get("hosts", []),
                                         "drives": inventory.get("drives", [])})
 
+            if path == "/api/coverage":
+                rows = portal.coverage(cfg.get("checks", []))
+                ignore = {str(x) for x in inventory.get("unmonitored_ok", [])}
+                for r in rows:
+                    r["ignored"] = r["vmid"] in ignore or r["key"] in ignore
+                gaps = [r for r in rows
+                        if not r["watched_by"] and not r["ignored"]
+                        and r["status"] == "running"]
+                return self._send(200, {
+                    "guests": rows,
+                    "total": len(rows),
+                    "running": sum(1 for r in rows if r["status"] == "running"),
+                    "watched": sum(1 for r in rows if r["watched_by"]),
+                    "ignored": sum(1 for r in rows if r["ignored"]),
+                    "gaps": gaps,
+                })
+
             if path == "/api/inventory":
                 return self._send(200, {
                     "hosts": inventory.get("hosts", []),
@@ -354,7 +371,13 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     return self._send(400, {"error": "host is required"})
                 portal.put_host(host, d)
                 n = portal.put_pools(host, d.get("pools", []))
-                return self._send(200, {"ok": True, "pools": n})
+                g = 0
+                # Only the daily run sends guests; the ten-minute metrics post
+                # omits the key entirely and must not wipe the list.
+                if "guests" in d:
+                    g = portal.put_guests(host, d["guests"])
+                    log(f"ingest: {host} — {g} guests")
+                return self._send(200, {"ok": True, "pools": n, "guests": g})
 
             return self._send(404, {"error": "not found"})
 
