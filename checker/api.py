@@ -225,6 +225,10 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     "generated": iso(now()),
                     "maintenance": in_maintenance(cfg),
                     "deadman_configured": bool(cfg["settings"]["deadman_url"]),
+                    "webhook_configured": bool(cfg["settings"]["webhook_url"]),
+                    "notify_hours": cfg["settings"].get("notify_hours", ""),
+                    "notify_days": cfg["settings"].get("notify_days", []),
+                    "off_hours_now": engine.note.off_hours(),
                     "summary": {
                         "checks": len(checks),
                         "up": sum(1 for r in checks if r["status"] == "up"),

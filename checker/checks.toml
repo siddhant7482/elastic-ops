@@ -38,6 +38,13 @@ webhook_header    = ""          # e.g. "Authorization: Bearer xyz"
 # reports the monitoring going down — which is exactly what happened on 4 Oct.
 deadman_url       = ""          # e.g. a healthchecks.io ping URL
 
+# When "notify" alerts may be sent. "page" ignores this and goes at any hour;
+# "quiet" is recorded and never sent. Leave notify_hours empty for around the
+# clock. Held alerts are still recorded and still appear in the portal — they
+# just do not light up a phone at 02:00.
+notify_hours      = "08:00-18:00"
+notify_days       = ["mon", "tue", "wed", "thu", "fri"]
+
 
 # Alerts are suppressed inside these windows. Backups run 02:00–04:00 and the
 # guest agents time out, which would otherwise train you to ignore the channel.

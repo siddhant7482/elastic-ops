@@ -478,7 +478,7 @@ textarea{resize:vertical}
   <section id="v-alerting" hidden>
     <div class="sh"><h2>Routing</h2></div>
     <div class="tw mb"><table><thead><tr><th>Severity</th><th>Applies to</th><th>Channel</th><th>Who</th><th>When</th><th>Active</th></tr></thead><tbody id="routerows"></tbody></table>
-      <div class="note">Almost nothing deserves to wake you. Keeping that list to five things is what keeps the channel worth reading.</div></div>
+      <div class="note">Almost nothing deserves to wake you. Keeping that list to five things is what keeps the channel worth reading. These rows describe intent and are edited in <span class="num">inventory.toml</span>; what the engine enforces is the <span class="num">severity</span> on each check plus the notify window below.</div></div>
     <div class="sh"><h2>Maintenance windows</h2></div>
     <div class="tw mb"><table><thead><tr><th>Window</th><th>Days</th><th>From</th><th>To</th><th>Active</th></tr></thead><tbody id="mwrows"></tbody></table>
       <div class="note">Alerts inside a window are recorded but not sent, so the 02:00–04:00 backup timeouts don't train you to ignore the channel.</div></div>
@@ -1173,10 +1173,22 @@ function renderAlerting(){
       +'<td class="dim">'+esc((m.days||["every day"]).join(", "))+'</td>'
       +'<td class="num">'+esc(m.start)+'</td><td class="num">'+esc(m.end)+'</td>'
       +'<td>'+swHTML(m.name,m.active!==false)+'</td></tr>'}).join("");
-  var dm=S.status.deadman_configured;
-  H("wdrows").innerHTML='<tr><td><b>Dead-man\'s switch</b></td>'
+  var st=S.status, dm=st.deadman_configured, wh=st.webhook_configured;
+  var hrs=st.notify_hours||"", days=(st.notify_days||[]).join(", ");
+  var win=hrs?(hrs.replace("-"," – ")+(days?" · "+days:"")):"any hour";
+  H("wdrows").innerHTML=
+     '<tr><td><b>Dead-man\'s switch</b></td>'
     +'<td class="num dim">external ping service</td><td class="num dim">every 60s</td>'
-    +'<td>'+pill(dm?"ok":"warn",dm?"Configured":"Not configured")+'</td></tr>';
+    +'<td>'+pill(dm?"ok":"warn",dm?"Configured":"Not configured")+'</td></tr>'
+    +'<tr><td><b>Alert channel</b></td>'
+    +'<td class="num dim">'+(wh?"webhook set":"nothing configured")+'</td>'
+    +'<td class="num dim">on state change</td>'
+    +'<td>'+pill(wh?"ok":"bad",wh?"Sending":"Log only")+'</td></tr>'
+    +'<tr><td><b>Notify window</b></td>'
+    +'<td class="num dim">'+esc(win)+'</td>'
+    +'<td class="num dim">page ignores it</td>'
+    +'<td>'+pill(st.off_hours_now?"dim":"ok",
+        st.off_hours_now?"Outside — holding":"Inside — sending")+'</td></tr>';
 }
 
 /* --- hardware --- */

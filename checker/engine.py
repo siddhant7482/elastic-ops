@@ -67,6 +67,8 @@ def load_config(path):
     s.setdefault("webhook_url", "")
     s.setdefault("webhook_header", "")
     s.setdefault("deadman_url", "")
+    s.setdefault("notify_hours", "")      # "08:00-18:00", empty = any hour
+    s.setdefault("notify_days", DAYS)
     s.setdefault("ingest_token", "")
     s.setdefault("web_dir", "web")
     s.setdefault("session_hours", 12)
@@ -123,19 +125,57 @@ def in_maintenance(cfg):
 
 
 class Notifier:
+    """Severity decides who gets woken, and when.
+
+      page    sent at any hour. Keep this list to about five things; that it
+              stays short is the only reason the channel stays worth reading.
+      notify  sent inside notify_hours on notify_days, held outside them.
+      quiet   recorded, never sent.
+
+    Until this existed the Alerting page described these rules and the code
+    posted everything regardless, which is worse than having no rules — you
+    would believe you had configured something.
+    """
+
     def __init__(self, cfg):
         s = cfg["settings"]
         self.url = s["webhook_url"]
         self.header = s["webhook_header"]
         self.timeout = s["timeout"]
+        self.hours = s.get("notify_hours", "")
+        self.days = [d.lower() for d in s.get("notify_days", DAYS)]
+
+    def off_hours(self, at=None):
+        """True when a 'notify' alert should be held. Empty notify_hours
+        means around the clock, so nothing is ever held."""
+        if not self.hours or "-" not in self.hours:
+            return False
+        t = at or datetime.now()
+        if DAYS[t.weekday()] not in self.days:
+            return True
+        start, _, end = self.hours.partition("-")
+        hhmm = t.strftime("%H:%M")
+        inside = (start <= hhmm < end) if start <= end else (hhmm >= start or hhmm < end)
+        return not inside
+
+    def withhold(self, severity, window, at=None):
+        """Why this will not be sent, or None if it will be."""
+        if severity == "quiet":
+            return "quiet severity"
+        if window:
+            return f"maintenance: {window}"
+        if severity != "page" and self.off_hours(at):
+            return f"outside notify hours ({self.hours})"
+        return None
 
     def send(self, name, status, severity, detail, window):
         word = {"up": "RECOVERED", "down": "DOWN", "unknown": "UNKNOWN"}[status]
         text = f"[{word}] {name} — {detail}"
-        if window:
-            text += f"  (suppressed: {window})"
+        held = self.withhold(severity, window)
+        if held:
+            text += f"  (not sent: {held})"
         log(text)
-        if window or not self.url:
+        if held or not self.url:
             return
         body = json.dumps({"name": name, "status": status, "severity": severity,
                            "detail": detail, "text": text, "at": iso(now())}).encode()

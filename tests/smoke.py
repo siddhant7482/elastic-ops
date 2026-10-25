@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime as _dt
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "checker"))
@@ -279,6 +280,34 @@ def main():
     code, body, _ = c.get("/api/hosts")
     check("host metrics come back with a series",
           json.loads(body)["hosts"][0]["host"] == "cinnamon", body[:160])
+
+    print("\nalert routing — severity and the clock")
+    n = Notifier({"settings": {"webhook_url": "", "webhook_header": "", "timeout": 1,
+                               "notify_hours": "08:00-18:00",
+                               "notify_days": ["mon", "tue", "wed", "thu", "fri"]}})
+    wed_10 = _dt(2026, 10, 21, 10, 0)     # Wednesday, working hours
+    wed_03 = _dt(2026, 10, 21, 3, 0)      # Wednesday, the middle of the night
+    sun_10 = _dt(2026, 10, 25, 10, 0)     # Sunday
+
+    check("page goes out at 3am", n.withhold("page", None, wed_03) is None)
+    check("page goes out on a Sunday", n.withhold("page", None, sun_10) is None)
+    check("notify goes out in working hours", n.withhold("notify", None, wed_10) is None)
+    check("notify is held at 3am", n.withhold("notify", None, wed_03) is not None,
+          n.withhold("notify", None, wed_03))
+    check("notify is held at the weekend", n.withhold("notify", None, sun_10) is not None)
+    check("quiet is never sent, even at noon on a Wednesday",
+          n.withhold("quiet", None, wed_10) == "quiet severity")
+    check("maintenance holds even a page",
+          n.withhold("page", "Nightly backup window", wed_10) is not None)
+
+    always = Notifier({"settings": {"webhook_url": "", "webhook_header": "", "timeout": 1}})
+    check("no notify_hours configured means around the clock",
+          always.withhold("notify", None, wed_03) is None)
+
+    code, body, _ = c.get("/api/status")
+    st2 = json.loads(body)
+    check("the portal reports the rule it is actually using",
+          "notify_hours" in st2 and "off_hours_now" in st2, list(st2)[:6])
 
     print("\ncoverage — what exists, minus what is checked")
     code, _, _ = c.post_json("/api/ingest/host", {
