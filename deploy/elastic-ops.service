@@ -1,0 +1,40 @@
+[Unit]
+Description=Elastic Ops — estate console
+Documentation=https://github.com/siddhant7482/elastic-ops
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=elasticops
+Group=elasticops
+
+# Secrets, and the paths this host wants instead of the container's defaults.
+EnvironmentFile=/opt/elastic-ops/.env
+Environment=OPS_DB=/var/lib/elastic-ops/ops.db
+Environment=PYTHONUNBUFFERED=1
+
+WorkingDirectory=/opt/elastic-ops/checker
+ExecStart=/usr/bin/python3 /opt/elastic-ops/checker/app.py /opt/elastic-ops/checker/checks.toml
+
+Restart=always
+RestartSec=5
+
+# This watches a hypervisor; it should not be able to touch one. The code is
+# read-only to it, and the database directory is the only thing it may write.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/elastic-ops
+
+[Install]
+WantedBy=multi-user.target

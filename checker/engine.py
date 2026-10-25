@@ -48,6 +48,10 @@ ENV_OVERRIDES = {
     "webhook_url": "OPS_WEBHOOK_URL",
     "webhook_header": "OPS_WEBHOOK_HEADER",
     "deadman_url": "OPS_DEADMAN_URL",
+    # Not a secret — the container wants /data, a systemd unit wants
+    # /var/lib/elastic-ops, and neither should have to edit a tracked file.
+    "db": "OPS_DB",
+    "listen_port": "OPS_PORT",
 }
 
 
@@ -77,8 +81,11 @@ def load_config(path):
         j.setdefault("severity", "notify")
     for key, var in ENV_OVERRIDES.items():
         val = os.environ.get(var)
-        if val:
-            s[key] = val
+        if not val:
+            continue
+        # Everything from the environment is a string; keep the type the rest
+        # of the code already expects, or binding the port fails at startup.
+        s[key] = int(val) if isinstance(s.get(key), int) else val
     return cfg
 
 
