@@ -164,9 +164,32 @@ token = "nightly-backup"
 grace_hours = 26
 severity = "page"
 
+# One job per hypervisor. Sharing a token would let a single host still
+# reporting mask four that had stopped — the exact failure this is here to
+# catch. install-collector.sh derives the token from the hostname.
 [[jobs]]
-name = "Backup log collector"
-token = "backup-collector"
+name = "Collector — pepper"
+token = "collector-pepper"
+grace_hours = 26
+
+[[jobs]]
+name = "Collector — cinnamon"
+token = "collector-cinnamon"
+grace_hours = 26
+
+[[jobs]]
+name = "Collector — proxmox"
+token = "collector-proxmox"
+grace_hours = 26
+
+[[jobs]]
+name = "Collector — yam"
+token = "collector-yam"
+grace_hours = 26
+
+[[jobs]]
+name = "Collector — networkserver"
+token = "collector-networkserver"
 grace_hours = 26
 
 [[jobs]]
