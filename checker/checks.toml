@@ -197,17 +197,18 @@ name = "Backup store verify"
 token = "pbs-verify"
 grace_hours = 192          # weekly, so 8 days
 
+# Stopped 9 July 2026 when the old BackupServer was decommissioned. Left here
+# deliberately, and deliberately red: TradePeg and Fresha were reports nobody
+# missed in 105 days, but this was a BACKUP, and nobody notices a missing
+# backup until they need it. CFP is covered by the nightly whole-VM job, so
+# what was lost is point-in-time SQL restore, not everything.
+#
+# Two honest endings: rehome the dumps and this goes green, or decide they are
+# not wanted and delete this block. Leaving it red is the third option and the
+# worst one.
 [[jobs]]
-name = "SQL dumps"
+name = "SQL dumps (needs rehoming — see checks.toml)"
 token = "sql-dumps"
 grace_hours = 26
+severity = "notify"
 
-[[jobs]]
-name = "TradePeg order parker"
-token = "tradepeg"
-grace_hours = 2
-
-[[jobs]]
-name = "Fresha reports"
-token = "fresha"
-grace_hours = 192
