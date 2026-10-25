@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up the Elastic Ops database
+After=elastic-ops.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/elastic-ops/.env
+Environment=OPS_DB=/var/lib/elastic-ops/ops.db
+ExecStart=/bin/sh /opt/elastic-ops/deploy/backup-db.sh
