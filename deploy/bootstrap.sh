@@ -16,10 +16,14 @@
 
 set -eu
 
-REPO="${REPO:-https://github.com/siddhant7482/elastic-ops.git}"
+# The repository is private, so this clones over SSH with a read-only deploy
+# key generated on this host. A deploy key is scoped to one repository and
+# cannot push, which a personal access token pasted into a clone URL is not.
+REPO="${REPO:-git@github.com:siddhant7482/elastic-ops.git}"
 BRANCH="${BRANCH:-main}"
 BASE="${BASE:-/opt/elastic-ops}"
 SRC="$BASE/src"
+KEY="$BASE/deploy_key"
 
 say() { printf '\n==> %s\n' "$1"; }
 die() { printf '\nERROR: %s\n' "$1" >&2; exit 1; }
@@ -34,8 +38,36 @@ if command -v ss >/dev/null 2>&1 && ss -lntH 2>/dev/null | grep -q ':8080 '; the
 fi
 echo "    docker, compose and git present; port 8080 is free"
 
-say "Fetching the code into $SRC"
+say "Checking repository access"
 mkdir -p "$BASE/backups"
+if [ ! -f "$KEY" ]; then
+    ssh-keygen -q -t ed25519 -N "" -f "$KEY" -C "elastic-ops deploy key ($(hostname))"
+    chmod 600 "$KEY"
+    echo "    generated a deploy key at $KEY"
+fi
+GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+export GIT_SSH_COMMAND
+
+if ! git ls-remote "$REPO" >/dev/null 2>&1; then
+    cat <<EOF
+
+This host cannot read the repository yet. Add its deploy key to GitHub:
+
+  https://github.com/siddhant7482/elastic-ops/settings/keys/new
+
+  Title        pepper
+  Key          (the line below, copied whole)
+  Allow write  leave UNTICKED — this only ever needs to read
+
+$(cat "$KEY.pub")
+
+Then run this script again.
+EOF
+    exit 1
+fi
+echo "    deploy key accepted"
+
+say "Fetching the code into $SRC"
 if [ -d "$SRC/.git" ]; then
     git -C "$SRC" fetch --quiet origin "$BRANCH"
     git -C "$SRC" checkout --quiet "$BRANCH"
@@ -45,6 +77,9 @@ else
     git clone --quiet --branch "$BRANCH" "$REPO" "$SRC"
     echo "    cloned at $(git -C "$SRC" rev-parse --short HEAD)"
 fi
+# Persist the key in the checkout, so a later `git pull` by hand or by a timer
+# works without this script's environment.
+git -C "$SRC" config core.sshCommand "$GIT_SSH_COMMAND"
 
 say "Secrets"
 if [ -f "$BASE/.env" ]; then
