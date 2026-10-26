@@ -62,11 +62,15 @@ end   = "06:00"
 
 # ---------------------------------------------------------------- business
 
+# Resolved through SQL Browser rather than a fixed port. It was pinned to
+# 63143, which had stopped being true: a named instance gets a dynamic port
+# that moves when the service restarts. The single most critical system in
+# the estate was showing red for a reason nobody could have acted on.
 [[checks]]
 name = "CFP / WinMan SQL"
 group = "Business"
-type = "tcp"
-target = "10.10.1.65:63143"
+type = "mssql"
+target = '10.10.1.65\CFP'
 severity = "page"
 
 [[checks]]

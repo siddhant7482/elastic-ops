@@ -281,6 +281,17 @@ def main():
     check("host metrics come back with a series",
           json.loads(body)["hosts"][0]["host"] == "cinnamon", body[:160])
 
+    print("\nnamed-instance SQL probe")
+    import probes
+    ok, _, detail = probes.run({"type": "mssql", "target": f"127.0.0.1:{port}"}, 2)
+    check("no instance given falls back to a plain tcp connect", ok, detail)
+    ok, _, detail = probes.run({"type": "mssql", "target": "127.0.0.1\\NOSUCH"}, 1)
+    check("a host with no SQL Browser fails cleanly, not with an exception",
+          ok is False and "Browser" in detail, detail)
+    ok, _, detail = probes.run({"type": "mssql", "target": "203.0.113.9\\X"}, 1)
+    check("an unreachable host says so rather than hanging",
+          ok is False and detail, detail)
+
     print("\nalert routing — severity and the clock")
     n = Notifier({"settings": {"webhook_url": "", "webhook_header": "", "timeout": 1,
                                "notify_hours": "08:00-18:00",

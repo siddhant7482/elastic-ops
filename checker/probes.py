@@ -61,12 +61,61 @@ def probe_ping(target: str, timeout: int):
         return False, None, str(e)
 
 
+def browser_port(host: str, instance: str, timeout: int):
+    """Ask SQL Server Browser (UDP 1434) which TCP port an instance is on.
+
+    Send one 0x02 byte and it replies with every instance and its port. This
+    is what a client does to resolve "host\\INSTANCE", and it needs no
+    credentials and never touches the engine.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    try:
+        s.sendto(b"\x02", (host, 1434))
+        data, _ = s.recvfrom(65535)
+    except OSError:
+        return None, "SQL Browser did not answer on UDP 1434"
+    finally:
+        s.close()
+    for chunk in data[3:].decode("ascii", "replace").split(";;"):
+        f = chunk.split(";")
+        # strict=False on purpose: a truncated or odd reply should be ignored,
+        # not raise. We only care whether the instance we want is in there.
+        d = dict(zip(f[0::2], f[1::2], strict=False))
+        if d.get("InstanceName", "").upper() == instance.upper():
+            port = d.get("tcp")
+            if port and port.isdigit():
+                return int(port), f"instance {instance} on {port}"
+            return None, f"instance {instance} advertises no TCP port"
+    return None, f"SQL Browser does not know an instance called '{instance}'"
+
+
+def probe_mssql(target: str, timeout: int):
+    """host\\INSTANCE, resolved through SQL Browser before connecting.
+
+    A named instance gets a dynamic port that moves when the service
+    restarts, so pinning the number means the check goes red for a reason
+    nobody can act on. Resolving first is the difference between a check that
+    survives a reboot and one that cries wolf after every patch Tuesday.
+    """
+    host, sep, instance = target.partition("\\")
+    if not sep:
+        return probe_tcp(target, timeout)
+    port, why = browser_port(host, instance, timeout)
+    if not port:
+        return False, None, why
+    ok, ms, detail = probe_tcp(f"{host}:{port}", timeout)
+    return ok, ms, (f"{detail}, {why}" if ok else f"{detail} (port {port})")
+
+
 def run(check: dict, timeout: int):
     kind = check["type"]
     if kind == "tcp":
         return probe_tcp(check["target"], timeout)
     if kind in ("http", "https"):
         return probe_http(check["target"], timeout, insecure=(kind == "https"))
+    if kind == "mssql":
+        return probe_mssql(check["target"], timeout)
     if kind == "ping":
         return probe_ping(check["target"], timeout)
     return False, None, f"unknown check type '{kind}'"
