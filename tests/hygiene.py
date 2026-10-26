@@ -29,7 +29,7 @@ RUNTIME_DIRS = ["checker", "collector"]
 SECRET_KEYS = ["ingest_token", "webhook_url", "webhook_header", "deadman_url"]
 
 # Modules this project ships itself, so they are not third-party imports.
-LOCAL = {"api", "app", "auth", "engine", "probes", "store"}
+LOCAL = {"api", "app", "auth", "engine", "matrix", "probes", "store"}
 
 # tomllib joined the standard library in 3.11, which is this project's floor.
 # Running the guard on 3.10 would otherwise report it as third-party.

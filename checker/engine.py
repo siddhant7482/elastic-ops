@@ -21,6 +21,7 @@ import tomllib
 import urllib.request
 from datetime import datetime, timezone
 
+import matrix as matrixmod
 import probes
 from store import now
 
@@ -48,6 +49,7 @@ ENV_OVERRIDES = {
     "webhook_url": "OPS_WEBHOOK_URL",
     "webhook_header": "OPS_WEBHOOK_HEADER",
     "deadman_url": "OPS_DEADMAN_URL",
+    "matrix_token": "OPS_MATRIX_TOKEN",
     # Not a secret — the container wants /data, a systemd unit wants
     # /var/lib/elastic-ops, and neither should have to edit a tracked file.
     "db": "OPS_DB",
@@ -67,6 +69,9 @@ def load_config(path):
     s.setdefault("webhook_url", "")
     s.setdefault("webhook_header", "")
     s.setdefault("deadman_url", "")
+    s.setdefault("matrix_homeserver", "")
+    s.setdefault("matrix_room", "")
+    s.setdefault("matrix_token", "")
     s.setdefault("notify_hours", "")      # "08:00-18:00", empty = any hour
     s.setdefault("notify_days", DAYS)
     s.setdefault("ingest_token", "")
@@ -144,6 +149,9 @@ class Notifier:
         self.timeout = s["timeout"]
         self.hours = s.get("notify_hours", "")
         self.days = [d.lower() for d in s.get("notify_days", DAYS)]
+        self.matrix = matrixmod.Matrix(s.get("matrix_homeserver"),
+                                       s.get("matrix_room"),
+                                       s.get("matrix_token"), s["timeout"])
 
     def off_hours(self, at=None):
         """True when a 'notify' alert should be held. Empty notify_hours
@@ -175,7 +183,15 @@ class Notifier:
         if held:
             text += f"  (not sent: {held})"
         log(text)
-        if held or not self.url:
+        if held:
+            return
+
+        if self.matrix.configured:
+            ok, why = self.matrix.send(name, status, severity, detail)
+            if not ok:
+                log(why)
+
+        if not self.url:
             return
         body = json.dumps({"name": name, "status": status, "severity": severity,
                            "detail": detail, "text": text, "at": iso(now())}).encode()

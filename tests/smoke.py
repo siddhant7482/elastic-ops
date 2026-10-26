@@ -293,6 +293,31 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\nmatrix alerting")
+    import matrix as matrixmod
+    m = matrixmod.Matrix("", "", "")
+    check("unconfigured matrix reports itself as such", not m.configured)
+    ok, why = m.send("x", "down", "page", "y")
+    check("sending while unconfigured is a no-op, not a crash",
+          ok is False and "not configured" in why, why)
+
+    m2 = matrixmod.Matrix("http://127.0.0.1:1", "!r:s", "tok", 1)
+    check("a configured but unreachable homeserver is configured", m2.configured)
+    ok, why = m2.send("CFP", "down", "page", "connection refused")
+    check("an unreachable homeserver fails without raising", ok is False and why, why)
+    check("transaction ids are unique per message", m2._txn() != m2._txn())
+
+    # A notifier with matrix configured must still honour severity and the clock.
+    n2 = Notifier({"settings": {"webhook_url": "", "webhook_header": "", "timeout": 1,
+                                "matrix_homeserver": "http://127.0.0.1:1",
+                                "matrix_room": "!r:s", "matrix_token": "tok",
+                                "notify_hours": "08:00-18:00",
+                                "notify_days": ["mon"]}})
+    check("matrix does not bypass a quiet severity",
+          n2.withhold("quiet", None, _dt(2026, 10, 26, 10, 0)) == "quiet severity")
+    check("matrix does not bypass a maintenance window",
+          n2.withhold("page", "backup window", _dt(2026, 10, 26, 10, 0)) is not None)
+
     print("\nsilences — they stop the message, never the measurement")
     code, body, _ = c.post_json("/api/silences", {
         "target": "loopback", "hours": 2, "reason": "testing"})
