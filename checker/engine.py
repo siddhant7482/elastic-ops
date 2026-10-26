@@ -21,6 +21,7 @@ import tomllib
 import urllib.request
 from datetime import datetime, timezone
 
+import mailer
 import matrix as matrixmod
 import probes
 import whatsapp as wamod
@@ -52,6 +53,9 @@ ENV_OVERRIDES = {
     "deadman_url": "OPS_DEADMAN_URL",
     "matrix_token": "OPS_MATRIX_TOKEN",
     "whatsapp_token": "OPS_WHATSAPP_TOKEN",
+    "gmail_client_secret": "OPS_GMAIL_CLIENT_SECRET",
+    "gmail_refresh_token": "OPS_GMAIL_REFRESH_TOKEN",
+    "smtp_password": "OPS_SMTP_PASSWORD",
     # Not a secret — the container wants /data, a systemd unit wants
     # /var/lib/elastic-ops, and neither should have to edit a tracked file.
     "db": "OPS_DB",
@@ -71,6 +75,16 @@ def load_config(path):
     s.setdefault("webhook_url", "")
     s.setdefault("webhook_header", "")
     s.setdefault("deadman_url", "")
+    s.setdefault("gmail_client_id", "")
+    s.setdefault("gmail_client_secret", "")
+    s.setdefault("gmail_refresh_token", "")
+    s.setdefault("smtp_host", "")
+    s.setdefault("smtp_port", 587)
+    s.setdefault("smtp_user", "")
+    s.setdefault("smtp_password", "")
+    s.setdefault("mail_from", "")
+    s.setdefault("mail_to", "")
+    s.setdefault("portal_url", "")
     s.setdefault("whatsapp_provider", "")
     s.setdefault("whatsapp_url", "")
     s.setdefault("whatsapp_token", "")
@@ -161,6 +175,11 @@ class Notifier:
                                        s.get("matrix_room"),
                                        s.get("matrix_token"), s["timeout"])
         self.whatsapp = wamod.WhatsApp(s)
+        # Gmail first; SMTP is the same destination by a simpler road, so
+        # configuring both would send everything twice.
+        self.mail = mailer.Gmail(s)
+        if not self.mail.configured:
+            self.mail = mailer.Smtp(s)
 
     def off_hours(self, at=None):
         """True when a 'notify' alert should be held. Empty notify_hours
@@ -195,7 +214,7 @@ class Notifier:
         if held:
             return
 
-        for channel in (self.whatsapp, self.matrix):
+        for channel in (self.mail, self.whatsapp, self.matrix):
             if channel.configured:
                 ok, why = channel.send(name, status, severity, detail)
                 if not ok:

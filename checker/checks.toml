@@ -28,6 +28,36 @@ cookie_secure     = false
 # Without it, backup and host metrics cannot be posted in.
 ingest_token      = ""
 
+# Email alerts. Two roads to the same place — configure ONE, or every alert
+# arrives twice. Gmail is tried first; SMTP is used if Gmail is not set up.
+#
+# GMAIL API. A service account would need RS256 signing, which the standard
+# library cannot do, so this uses the OAuth refresh-token flow instead — no
+# signing, no dependencies. Make an OAuth client of type "Desktop app" in the
+# Google Cloud console with the Gmail API enabled, then, ON A MACHINE WITH A
+# BROWSER (your laptop, not pepper):
+#
+#   python3 app.py checks.toml --gmail-auth
+#
+# It prints the refresh token. Put that and the client secret in .env.
+gmail_client_id     = ""
+gmail_client_secret = ""        # set via OPS_GMAIL_CLIENT_SECRET
+gmail_refresh_token = ""        # set via OPS_GMAIL_REFRESH_TOKEN
+
+# SMTP. Simpler: a Workspace app password, which needs 2FA on the account and
+# can be disabled estate-wide by a Workspace admin. No OAuth, no token to
+# expire, and nothing to re-run when someone changes their password.
+smtp_host     = ""              # smtp.gmail.com
+smtp_port     = 587
+smtp_user     = ""
+smtp_password = ""              # set via OPS_SMTP_PASSWORD
+
+mail_from  = ""                 # alerts@elasticgroup.co.uk
+mail_to    = ""                 # comma separated
+portal_url = "http://10.10.1.70:8080"   # included in the body
+
+#   python3 app.py checks.toml --mail-test
+
 # WhatsApp. No gateway existed on the estate when this was written, so pick
 # one and fill in the four values it needs:
 #

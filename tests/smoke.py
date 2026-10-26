@@ -293,6 +293,49 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\nemail alerting")
+    import mailer
+    check("unconfigured gmail reports itself as such", not mailer.Gmail({}).configured)
+    ok, why = mailer.Gmail({}).send("x", "down", "page", "y")
+    check("sending while unconfigured is a no-op, not a crash",
+          ok is False and "not configured" in why, why)
+    check("gmail needs every one of its five values",
+          not mailer.Gmail({"gmail_client_id": "a", "gmail_client_secret": "b",
+                            "gmail_refresh_token": "c", "mail_from": "d"}).configured)
+    g = mailer.Gmail({"gmail_client_id": "a", "gmail_client_secret": "b",
+                      "gmail_refresh_token": "c", "mail_from": "ops@x",
+                      "mail_to": "one@x, two@x"})
+    check("gmail is configured once all five are present", g.configured)
+    check("recipients are split and trimmed", g.to == ["one@x", "two@x"], g.to)
+
+    subject, body = mailer.compose("CFP / WinMan SQL", "down", "page",
+                                   "connection refused", "http://10.10.1.70:8080")
+    check("the subject carries the whole story",
+          subject == "[DOWN] CFP / WinMan SQL", subject)
+    check("the body carries detail, severity and the portal link",
+          "connection refused" in body and "page" in body and "8080" in body)
+
+    msg = mailer.build("ops@x", ["a@x", "b@x"], subject, body)
+    check("the message is a well-formed email",
+          msg["Subject"] == subject and msg["To"] == "a@x, b@x")
+    import base64 as _b64
+    raw = _b64.urlsafe_b64encode(msg.as_bytes()).decode()
+    check("it base64url-encodes for the gmail api, with no padding issues",
+          _b64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).startswith(b"From:"))
+
+    check("smtp is unconfigured without a password",
+          not mailer.Smtp({"smtp_host": "smtp.gmail.com", "smtp_user": "u",
+                           "mail_to": "a@x"}).configured)
+    check("smtp is configured with one",
+          mailer.Smtp({"smtp_host": "smtp.gmail.com", "smtp_user": "u",
+                       "smtp_password": "p", "mail_to": "a@x"}).configured)
+
+    url = mailer.consent_url("cid", "http://127.0.0.1:1234")
+    check("consent asks for offline access and forces the prompt",
+          "access_type=offline" in url and "prompt=consent" in url, url)
+    check("consent requests only gmail.send, not full mailbox access",
+          "gmail.send" in url and "mail.google.com" not in url)
+
     print("\nwhatsapp alerting")
     import whatsapp as wamod
     check("unconfigured whatsapp reports itself as such",
