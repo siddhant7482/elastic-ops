@@ -27,6 +27,27 @@ from engine import in_maintenance, iso, log
 from store import now
 
 MAX_BODY = 256 * 1024
+STARTED = now()
+
+
+def _build_stamp():
+    """Newest mtime across the application files, as a build marker. Crude,
+    but it needs no build step and no .git — and the archive deployed to
+    pepper has neither."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    newest = 0
+    for root, dirs, names in os.walk(here):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for n in names:
+            if n.endswith((".py", ".toml", ".html")):
+                try:
+                    newest = max(newest, int(os.path.getmtime(os.path.join(root, n))))
+                except OSError:
+                    pass
+    return iso(newest) if newest else "unknown"
+
+
+BUILD = _build_stamp()
 
 
 def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
@@ -125,7 +146,12 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             qs = urllib.parse.parse_qs(parsed.query)
 
             if path == "/health":
-                return self._send(200, {"ok": True, "at": iso(now())})
+                # Unauthenticated on purpose, so a load balancer or a human can
+                # use it. It reports WHICH build is running, because "did the
+                # deploy land?" was otherwise unanswerable without logging in.
+                return self._send(200, {"ok": True, "at": iso(now()),
+                                        "started": iso(STARTED),
+                                        "build": BUILD})
 
             if path.startswith("/checkin/"):
                 name = engine.checkin(path.rsplit("/", 1)[-1])
