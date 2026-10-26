@@ -80,17 +80,27 @@ type = "tcp"
 target = "10.10.1.35:1433"
 severity = "notify"
 
-[[checks]]
-name = "Bigcapital"
-group = "Business"
-type = "http"
-target = "http://10.10.1.102:3000/"
-
-[[checks]]
-name = "Odoo"
-group = "Business"
-type = "http"
-target = "http://10.10.1.103:8069/web/login"
+# Bigcapital and Odoo, parked 26 Oct 2026 at the owner's instruction.
+#
+# Neither host answers ping or TCP on .102 / .103, while yam (which hosts
+# them) is fine — so they are powered off or re-addressed, not failing. They
+# are commented out rather than deleted so the targets survive if they come
+# back, and so this is a recorded decision rather than something that quietly
+# vanished.
+#
+# Uncomment to resume. Nobody will be told if they change state meanwhile.
+#
+# [[checks]]
+# name = "Bigcapital"
+# group = "Business"
+# type = "http"
+# target = "http://10.10.1.102:3000/"
+#
+# [[checks]]
+# name = "Odoo"
+# group = "Business"
+# type = "http"
+# target = "http://10.10.1.103:8069/web/login"
 
 # ------------------------------------------------------------ infrastructure
 
