@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS guests (
 );
 CREATE INDEX IF NOT EXISTS hostmetrics_k ON hostmetrics(host, ts);
 
+-- Every silence has an expiry. A mute with no end date is how monitoring
+-- quietly dies: the thing stays quiet long after the reason is gone, and
+-- nobody remembers it was ever muted.
+CREATE TABLE IF NOT EXISTS silences (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  target     TEXT NOT NULL,          -- a check/job name, or '*' for everything
+  until_ts   INTEGER NOT NULL,
+  reason     TEXT,
+  created_by TEXT,
+  created_ts INTEGER NOT NULL,
+  ended_ts   INTEGER                 -- set when lifted early
+);
+CREATE INDEX IF NOT EXISTS silences_target ON silences(target, until_ts);
+
 CREATE TABLE IF NOT EXISTS certs (
   name       TEXT PRIMARY KEY,      -- the check this cert belongs to
   host       TEXT, port INTEGER,
@@ -286,6 +300,28 @@ class Store:
              1 if (info or {}).get("expired") else 0,
              1 if (info or {}).get("renew_soon") else 0, detail, now()))
 
+
+    # -- silences ---------------------------------------------------------
+    def silences(self, include_past=False):
+        if include_past:
+            return self.q("SELECT * FROM silences ORDER BY until_ts DESC LIMIT 100")
+        return self.q("SELECT * FROM silences WHERE ended_ts IS NULL AND until_ts > ? "
+                      "ORDER BY until_ts", (now(),))
+
+    def add_silence(self, target, until_ts, reason, who):
+        return self.x("INSERT INTO silences(target,until_ts,reason,created_by,created_ts) "
+                      "VALUES(?,?,?,?,?)", (target, int(until_ts), reason, who, now()))
+
+    def end_silence(self, sid):
+        self.x("UPDATE silences SET ended_ts=? WHERE id=? AND ended_ts IS NULL",
+               (now(), sid))
+
+    def silenced(self, name):
+        """The live silence covering this check, or None. '*' covers everything."""
+        r = self.one(
+            "SELECT * FROM silences WHERE ended_ts IS NULL AND until_ts > ? "
+            "AND target IN (?, '*') ORDER BY until_ts DESC LIMIT 1", (now(), name))
+        return r
 
     def prune(self, results_days=120, events_days=400):
         t = now()

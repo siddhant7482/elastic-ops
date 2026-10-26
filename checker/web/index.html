@@ -248,12 +248,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--dk) 16%,transparent)}
   padding:6px 14px;border-radius:999px;cursor:pointer}
 .seg button:hover{color:var(--ink)}
 .seg button[aria-pressed="true"]{color:var(--ink);box-shadow:var(--r-sm)}
-.sw{appearance:none;border:0;background:var(--paper);cursor:pointer;padding:0;flex:none;position:relative;
-  width:48px;height:27px;border-radius:999px;box-shadow:var(--i-sm);transition:background .18s ease}
-.sw::after{content:"";position:absolute;top:3.5px;left:3.5px;width:20px;height:20px;border-radius:50%;
-  background:var(--paper);box-shadow:var(--r-sm);transition:transform .18s ease}
-.sw[aria-checked="true"]{background:var(--ok)}
-.sw[aria-checked="true"]::after{transform:translateX(21px)}
 form{display:grid;gap:16px;padding:20px}
 label{display:block;font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.13em;text-transform:uppercase;
   color:var(--ink-3);margin-bottom:7px}
@@ -379,7 +373,7 @@ textarea{resize:vertical}
         <div class="lg"><span><i style="background:var(--ok);opacity:.32"></i>Fine</span>
           <span><i style="background:var(--warn)"></i>Partial</span><span><i style="background:var(--bad)"></i>All failed</span></div>
         <div class="seg" id="svcseg"></div></div></div>
-    <div class="tw mb"><table><thead><tr><th>Service</th><th>Status</th><th>Uptime 30d</th><th>Response</th><th>Last 45 days</th><th>Checked</th></tr></thead><tbody id="svcrows"></tbody></table>
+    <div class="tw mb"><table><thead><tr><th>Service</th><th>Status</th><th>Uptime 30d</th><th>Response</th><th>Last 45 days</th><th>Checked</th><th></th></tr></thead><tbody id="svcrows"></tbody></table>
       <div id="svcempty"></div></div>
 
     <div class="sh"><h2>Running, but nobody is watching</h2><span class="lab" id="gapcount"></span></div>
@@ -477,10 +471,19 @@ textarea{resize:vertical}
   <!-- ALERTING -->
   <section id="v-alerting" hidden>
     <div class="sh"><h2>Routing</h2></div>
-    <div class="tw mb"><table><thead><tr><th>Severity</th><th>Applies to</th><th>Channel</th><th>Who</th><th>When</th><th>Active</th></tr></thead><tbody id="routerows"></tbody></table>
+    <div class="tw mb"><table><thead><tr><th>Severity</th><th>Applies to</th><th>Channel</th><th>Who</th><th>When</th></tr></thead><tbody id="routerows"></tbody></table>
       <div class="note">Almost nothing deserves to wake you. Keeping that list to five things is what keeps the channel worth reading. These rows describe intent and are edited in <span class="num">inventory.toml</span>; what the engine enforces is the <span class="num">severity</span> on each check plus the notify window below.</div></div>
+    <div class="sh"><h2>Silences</h2><span class="lab" id="silcount"></span></div>
+    <div class="tw mb"><table><thead><tr><th>What</th><th>Reason</th><th>Muted by</th><th>Expires</th><th></th></tr></thead><tbody id="silrows2"></tbody></table>
+      <div id="silempty"></div>
+      <div class="note">Every silence expires — the form will not accept one longer than a
+        week. A mute with no end date is how monitoring quietly dies: the thing stays quiet
+        long after the reason is gone and nobody remembers it was muted. Silencing stops the
+        message, never the measurement; state changes are still recorded and still appear on
+        the timeline.</div></div>
+
     <div class="sh"><h2>Maintenance windows</h2></div>
-    <div class="tw mb"><table><thead><tr><th>Window</th><th>Days</th><th>From</th><th>To</th><th>Active</th></tr></thead><tbody id="mwrows"></tbody></table>
+    <div class="tw mb"><table><thead><tr><th>Window</th><th>Days</th><th>From</th><th>To</th></tr></thead><tbody id="mwrows"></tbody></table>
       <div class="note">Alerts inside a window are recorded but not sent, so the 02:00–04:00 backup timeouts don't train you to ignore the channel.</div></div>
     <div class="sh"><h2>Watchdog</h2></div>
     <div class="tw"><table><thead><tr><th>Check</th><th>Target</th><th>Interval</th><th>State</th></tr></thead><tbody id="wdrows"></tbody></table>
@@ -599,10 +602,6 @@ function pill(st,txt){
 function statCard(c){
   return '<div class="stat"><div class="lab">'+esc(c.l)+'</div><div class="n '+(c.cls||"")+'">'
     +esc(c.v)+'<em>'+esc(c.em||"")+'</em></div><p>'+(c.p||"")+'</p></div>';
-}
-function swHTML(name,on){
-  return '<button class="sw" role="switch" aria-checked="'+(on===false?"false":"true")+'" data-n="'
-    +esc(name)+'" onclick="sw(this)" aria-label="'+esc(name)+' active"></button>';
 }
 function mt(title,body){return '<div class="mt"><b>'+esc(title)+'</b>'+esc(body||"")+'</div>'}
 function strip(h,name){
@@ -791,12 +790,12 @@ function load(){
   return Promise.all([
     api("/api/me"),api("/api/status"),api("/api/inventory"),api("/api/incidents"),
     api("/api/followups"),api("/api/changes"),api("/api/backups"),api("/api/capacity"),
-    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs")
+    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs"),api("/api/silences")
   ]).then(function(r){
     S.me=r[0];S.status=r[1];S.inv=r[2];S.incidents=r[3].incidents;S.followups=r[4].followups;
     S.changes=r[5].changes;S.backups=r[6].backups;S.drills=r[6].drills;S.pools=r[7].pools;
     S.hosts=r[8].hosts;S.hostinv=r[8].inventory;S.drives=r[8].drives;S.events=r[9].events;
-    S.cov=r[10];S.certs=r[11];
+    S.cov=r[10];S.certs=r[11];S.sil=r[12];
     renderAll();
   });
 }
@@ -966,6 +965,7 @@ function renderServices(){
   H("svcseg").innerHTML=groups.map(function(g){
     return '<button aria-pressed="'+(g===curG)+'" onclick="grp(\''+esc(g)+'\',this)">'
       +(g==="all"?"All":esc(g))+'</button>'}).join("");
+  var sx={};((S.sil&&S.sil.silences)||[]).forEach(function(z){sx[z.target]=1});
   H("svcrows").innerHTML=checks().map(function(s){
     return '<tr data-g="'+esc(s.grp)+'" data-n="'+esc((s.name+" "+s.target).toLowerCase())+'">'
       +'<td><div class="two"><b>'+esc(s.name)+'</b><span>'+esc(s.target)+'</span></div></td>'
@@ -973,7 +973,11 @@ function renderServices(){
       +'<td class="num">'+(s.uptime30==null?"—":s.uptime30+"%")+'</td>'
       +'<td class="num dim">'+(s.last_ms==null?"—":s.last_ms+" ms")+'</td>'
       +'<td>'+strip(s.history,s.name)+'</td>'
-      +'<td class="num dim">'+ago(s.last_run)+'</td></tr>'}).join("");
+      +'<td class="num dim">'+ago(s.last_run)+'</td>'
+      +'<td>'+(sx[s.name]
+          ?'<span class="pill p-dim"><i></i>Silenced</span>'
+          :'<button class="btn" data-n="'+esc(s.name)+'" onclick="silence(this.dataset.n)">Silence</button>')
+      +'</td></tr>'}).join("");
   applyFilter();
   renderGaps();
 }
@@ -1171,16 +1175,17 @@ function renderJobs(){
 
 /* --- alerting --- */
 function renderAlerting(){
+  renderSilences();
   H("routerows").innerHTML=(S.inv.routing||[]).map(function(r){
     return '<tr><td>'+pill(r.state,r.level)+'</td><td class="wc">'+esc(r.applies)+'</td>'
       +'<td class="dim">'+esc(r.channel)+'</td><td class="dim">'+esc(r.who)+'</td>'
-      +'<td class="num dim">'+esc(r.when)+'</td><td>'+swHTML(r.level+" rule")+'</td></tr>'}).join("");
+      +'<td class="num dim">'+esc(r.when)+'</td></tr>'}).join("");
   H("mwrows").innerHTML=(S.inv.maintenance||[]).map(function(m){
     var active=S.status.maintenance===m.name;
     return '<tr><td><b>'+esc(m.name)+'</b>'+(active?' '+pill("warn","In effect now"):"")+'</td>'
       +'<td class="dim">'+esc((m.days||["every day"]).join(", "))+'</td>'
       +'<td class="num">'+esc(m.start)+'</td><td class="num">'+esc(m.end)+'</td>'
-      +'<td>'+swHTML(m.name,m.active!==false)+'</td></tr>'}).join("");
+      +'</tr>'}).join("");
   var st=S.status, dm=st.deadman_configured, wh=st.webhook_configured;
   var hrs=st.notify_hours||"", days=(st.notify_days||[]).join(", ");
   var win=hrs?(hrs.replace("-"," – ")+(days?" · "+days:"")):"any hour";
@@ -1278,6 +1283,34 @@ function renderSecurity(){
       +'<td>'+pill(c.state,c.state_label)+'</td></tr>'}).join("");
 }
 
+function renderSilences(){
+  var live=(S.sil&&S.sil.silences)||[];
+  H("silcount").textContent=live.length?plural(live.length,"active")+" silence":"none active";
+  H("silrows2").innerHTML=live.map(function(s){
+    return '<tr><td><b>'+esc(s.target==="*"?"Everything":s.target)+'</b></td>'
+      +'<td class="dim wc">'+esc(s.reason||"no reason given")+'</td>'
+      +'<td class="dim">'+esc(s.created_by||"—")+'</td>'
+      +'<td class="num">'+fdatetime(s.until_ts)+'</td>'
+      +'<td><button class="btn" onclick="endSilence('+s.id+')">Lift now</button></td></tr>'
+  }).join("");
+  H("silempty").innerHTML=live.length?"":mt("Nothing is silenced",
+    "Use the Silence button beside a service to mute it for a few hours.");
+}
+
+function silence(name){
+  var h=prompt("Silence “"+name+"” for how many hours?\n\n"
+    +"It will un-mute itself automatically. Maximum 168 (one week).","4");
+  if(h===null)return;
+  var reason=prompt("Why? This is what you will read when you wonder why it is quiet.")||"";
+  post("/api/silences",{target:name,hours:parseFloat(h),reason:reason})
+    .then(function(){toast("Silenced "+name+" for "+h+"h");return refresh()})
+    .catch(function(e){toast(e.message)});
+}
+function endSilence(id){
+  post("/api/silences/"+id+"/end").then(function(){toast("Silence lifted");return refresh()})
+    .catch(function(e){toast(e.message)});
+}
+
 function renderCerts(c){
   var rows=c.certs||[];
   H("certcount").textContent=rows.length?plural(rows.length,"endpoint"):"";
@@ -1328,12 +1361,6 @@ function addChange(){
   post("/api/changes",{title:t,detail:d,system:sys})
     .then(function(){toast("Change recorded");return refresh()})
     .catch(function(err){toast(err.message)});
-}
-function sw(b){
-  var on=b.getAttribute("aria-checked")!=="true";
-  b.setAttribute("aria-checked",String(on));
-  toast((b.getAttribute("data-n")||"Rule")+(on?" switched on":" switched off")
-    +" — edit checks.toml to make it stick");
 }
 function recheck(b){
   b.disabled=true;

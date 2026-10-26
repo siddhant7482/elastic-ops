@@ -39,6 +39,7 @@ import api                                                           # noqa: E40
 import auth as authmod                                               # noqa: E402
 from engine import Engine, Notifier, load_config, load_inventory     # noqa: E402
 from store import Portal, Store                                      # noqa: E402
+from store import now as now_ts                                      # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -291,6 +292,42 @@ def main():
     ok, _, detail = probes.run({"type": "mssql", "target": "203.0.113.9\\X"}, 1)
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
+
+    print("\nsilences — they stop the message, never the measurement")
+    code, body, _ = c.post_json("/api/silences", {
+        "target": "loopback", "hours": 2, "reason": "testing"})
+    check("a silence can be created", code == 201, body[:120])
+    sid = json.loads(body)["id"]
+    check("the engine sees the check as silenced", store.silenced("loopback") is not None)
+    check("an unrelated check is not silenced", store.silenced("something else") is None)
+
+    code, _, _ = c.post_json("/api/silences", {"target": "x", "hours": 0})
+    check("a zero-hour silence is rejected", code == 400, code)
+    code, _, _ = c.post_json("/api/silences", {"target": "x", "hours": 1000})
+    check("a silence longer than a week is rejected — every silence expires",
+          code == 400, code)
+    code, _, _ = c.post_json("/api/silences", {"target": "", "hours": 2})
+    check("a silence with no target is rejected", code == 400, code)
+
+    # Silencing must not stop the check running or the transition being recorded.
+    before = len(store.recent_events(500))
+    store.update("loopback", status="up", fails=0)
+    engine.transition("loopback", "down", "pretend failure", "page")
+    check("a silenced check still records its state change",
+          len(store.recent_events(500)) > before)
+    check("and the state really changed", store.get("loopback")["status"] == "down")
+
+    code, _, _ = c.post_json(f"/api/silences/{sid}/end", {})
+    check("a silence can be lifted early", code == 200, code)
+    check("lifting it takes effect at once", store.silenced("loopback") is None)
+
+    past = store.add_silence("loopback", now_ts() - 60, "already over", "test")
+    check("an expired silence does not mute anything",
+          store.silenced("loopback") is None, past)
+    check("a wildcard silence covers everything",
+          (store.add_silence("*", now_ts() + 600, "all", "test")
+           and store.silenced("anything at all") is not None))
+    store.x("DELETE FROM silences")
 
     print("\ncertificate expiry, judged by each cert's own lifetime")
     # A fixed threshold would alert twice a day about a 12h auto-renewing cert

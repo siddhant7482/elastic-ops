@@ -320,6 +320,12 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     "gaps": gaps,
                 })
 
+            if path == "/api/silences":
+                return self._send(200, {
+                    "silences": store.silences(),
+                    "past": store.silences(include_past=True),
+                })
+
             if path == "/api/certs":
                 rows = store.certs()
                 return self._send(200, {
@@ -379,6 +385,25 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             if path.startswith("/api/followups/"):
                 fid = int(path.split("/")[3])
                 portal.set_followup(fid, "done" if path.endswith("/done") else "open")
+                return self._send(200, {"ok": True})
+
+            if path == "/api/silences":
+                d = self._json()
+                target = (d.get("target") or "").strip()
+                hours = float(d.get("hours") or 0)
+                if not target:
+                    raise ValueError("a target is required")
+                if not 0 < hours <= 168:
+                    raise ValueError("hours must be between 0 and 168 — every "
+                                     "silence expires")
+                sid = store.add_silence(target, now() + int(hours * 3600),
+                                        (d.get("reason") or "").strip(), who)
+                log(f"silenced by {who}: {target} for {hours}h")
+                return self._send(201, {"id": sid})
+
+            if path.startswith("/api/silences/") and path.endswith("/end"):
+                store.end_silence(int(path.split("/")[3]))
+                log(f"silence lifted by {who}")
                 return self._send(200, {"ok": True})
 
             if path == "/api/changes":

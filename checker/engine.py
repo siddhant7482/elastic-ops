@@ -163,7 +163,7 @@ class Notifier:
         if severity == "quiet":
             return "quiet severity"
         if window:
-            return f"maintenance: {window}"
+            return window
         if severity != "page" and self.off_hours(at):
             return f"outside notify hours ({self.hours})"
         return None
@@ -217,7 +217,17 @@ class Engine:
         self.store.event(name, old, new_status, detail)
         if old == "unknown" and new_status == "up":
             return                      # the first successful check is not news
-        self.note.send(name, new_status, severity, detail, in_maintenance(self.cfg))
+        # A silence stops the message, never the measurement: the transition is
+        # already recorded above and still shows in the portal.
+        sil = self.store.silenced(name)
+        if sil:
+            hold = f"silenced until {iso(sil['until_ts'])}"
+            if sil["reason"]:
+                hold += f" — {sil['reason']}"
+        else:
+            mw = in_maintenance(self.cfg)
+            hold = f"maintenance window: {mw}" if mw else None
+        self.note.send(name, new_status, severity, detail, hold)
 
     def refresh_cert(self, c):
         """Certificates move slowly, so look every six hours rather than every
