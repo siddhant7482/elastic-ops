@@ -511,6 +511,14 @@ textarea{resize:vertical}
     <div class="grid g4 mb" id="secstats"></div>
     <div class="sh"><h2>Patch status</h2></div>
     <div class="tw mb"><table><thead><tr><th>Host</th><th>Pending</th><th>Security</th><th>Last updated</th><th>State</th></tr></thead><tbody id="patchrows"></tbody></table></div>
+    <div class="sh"><h2>Certificates</h2><span class="lab" id="certcount"></span></div>
+    <div class="tw mb"><table><thead><tr><th>Service</th><th>Endpoint</th><th>Expires</th><th>Left</th><th>Lifetime</th><th>State</th></tr></thead><tbody id="certrows"></tbody></table>
+      <div id="certempty"></div>
+      <div class="note">Judged against each certificate's own lifetime, not a fixed number of
+        days. Vaultwarden and the knowledge base sit behind Caddy's internal CA, which issues
+        twelve-hour certificates and renews them itself — a "warn under 14 days" rule would
+        alert about those twice a day forever.</div></div>
+
     <div class="sh"><h2>Credential age</h2></div>
     <div class="tw"><table><thead><tr><th>Credential</th><th>Used by</th><th>Age</th><th>Stored</th><th>State</th></tr></thead><tbody id="credrows"></tbody></table>
       <div class="note">The portal holds no secrets — only where they live and how old they are, with a link into Vaultwarden. The point is the age column.</div></div>
@@ -783,12 +791,12 @@ function load(){
   return Promise.all([
     api("/api/me"),api("/api/status"),api("/api/inventory"),api("/api/incidents"),
     api("/api/followups"),api("/api/changes"),api("/api/backups"),api("/api/capacity"),
-    api("/api/hosts"),api("/api/events"),api("/api/coverage")
+    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs")
   ]).then(function(r){
     S.me=r[0];S.status=r[1];S.inv=r[2];S.incidents=r[3].incidents;S.followups=r[4].followups;
     S.changes=r[5].changes;S.backups=r[6].backups;S.drills=r[6].drills;S.pools=r[7].pools;
     S.hosts=r[8].hosts;S.hostinv=r[8].inventory;S.drives=r[8].drives;S.events=r[9].events;
-    S.cov=r[10];
+    S.cov=r[10];S.certs=r[11];
     renderAll();
   });
 }
@@ -1245,7 +1253,8 @@ function renderApps(){
 
 /* --- security --- */
 function renderSecurity(){
-  var cr=S.inv.credentials||[], pa=S.inv.patching||[];
+  var cr=S.inv.credentials||[], pa=S.inv.patching||[], cr2=S.certs||{certs:[]};
+  renderCerts(cr2);
   var oldCreds=cr.filter(function(c){return c.state!=="ok"}).length;
   var behind=pa.filter(function(p){return p.state!=="ok"}).length;
   H("secstats").innerHTML=[
@@ -1253,7 +1262,10 @@ function renderSecurity(){
      p:behind?"longest <b>"+Math.max.apply(null,pa.map(function(p){return p.pending||0}))+"</b> updates":"all current"},
     {l:"Credentials to rotate",v:oldCreds,em:"",cls:cr.filter(function(c){return c.state==="bad"}).length?"bad":"",
      p:cr.filter(function(c){return /plaintext/i.test(c.stored||"")}).length?"one held in <b>plaintext</b>":""},
-    {l:"Certificates expiring",v:"0",em:"",p:"none inside 30 days"},
+    {l:"Certificates",v:cr2.expired?cr2.expired:(cr2.renew_soon||0),em:"",
+     cls:cr2.expired?"bad":cr2.renew_soon?"warn":"",
+     p:cr2.expired?"<b>expired</b>":cr2.renew_soon?"due to renew":
+       ((cr2.certs||[]).length?plural((cr2.certs||[]).length,"checked")+", all healthy":"none checked yet")},
     {l:"Accounts on this portal",v:"—",em:"",p:"managed from the host"}
   ].map(statCard).join("");
   H("patchrows").innerHTML=pa.map(function(p){
@@ -1264,6 +1276,27 @@ function renderSecurity(){
     return '<tr><td><b>'+esc(c.name)+'</b></td><td class="dim">'+esc(c.used_by)+'</td>'
       +'<td class="num">'+esc(c.age)+'</td><td class="dim">'+esc(c.stored)+'</td>'
       +'<td>'+pill(c.state,c.state_label)+'</td></tr>'}).join("");
+}
+
+function renderCerts(c){
+  var rows=c.certs||[];
+  H("certcount").textContent=rows.length?plural(rows.length,"endpoint"):"";
+  H("certrows").innerHTML=rows.map(function(x){
+    var st=x.not_after==null?"dim":x.expired?"bad":x.renew_soon?"warn":"ok";
+    var lbl=x.not_after==null?"Unreadable":x.expired?"Expired":x.renew_soon?"Renew soon":"Valid";
+    var left=x.days_left==null?"—"
+      :(x.days_left<1?(Math.round(x.days_left*24)+"h"):(Math.round(x.days_left)+"d"));
+    var life=x.lifetime_days==null?"—"
+      :(x.lifetime_days<1?(Math.round(x.lifetime_days*24)+"h")
+        :(x.lifetime_days>3650?Math.round(x.lifetime_days/365)+"y":Math.round(x.lifetime_days)+"d"));
+    return '<tr><td><b>'+esc(x.name)+'</b></td>'
+      +'<td class="num dim">'+esc(x.host)+':'+esc(x.port)+'</td>'
+      +'<td class="num">'+(x.not_after?fdatetime(x.not_after):esc(x.detail||"—"))+'</td>'
+      +'<td class="num '+(st==="ok"?"dim":"")+'">'+left+'</td>'
+      +'<td class="num dim">'+life+'</td>'
+      +'<td>'+pill(st,lbl)+'</td></tr>'}).join("");
+  H("certempty").innerHTML=rows.length?"":mt("No certificates checked yet",
+    "They are read from every https check, refreshed every six hours.");
 }
 
 /* ============================================================ actions */

@@ -6,12 +6,14 @@ string is what lands in the alert and in the portal, so it is written for
 someone reading it at 3am, not for a log parser.
 """
 
+import re
 import socket
 import ssl
 import subprocess
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 
 def probe_tcp(target: str, timeout: int):
@@ -106,6 +108,94 @@ def probe_mssql(target: str, timeout: int):
         return False, None, why
     ok, ms, detail = probe_tcp(f"{host}:{port}", timeout)
     return ok, ms, (f"{detail}, {why}" if ok else f"{detail} (port {port})")
+
+
+def _asn1_time(tag: int, raw: bytes):
+    s = raw.decode("ascii").rstrip("Z")
+    fmt = "%y%m%d%H%M%S" if tag == 0x17 else "%Y%m%d%H%M%S"
+    return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+
+
+def _validity(der: bytes):
+    """Pull notBefore/notAfter out of a DER certificate.
+
+    The standard library has no x509 parser, and getpeercert() returns nothing
+    useful once verification is disabled — which it has to be, because half
+    this estate serves self-signed certs. So: scan for the Validity SEQUENCE,
+    which is the first one holding two consecutive ASN.1 time values.
+    """
+    i = 0
+    while i < len(der) - 4:
+        if der[i] == 0x30:
+            j, times = i + 2, []
+            for _ in range(2):
+                if j + 1 < len(der) and der[j] in (0x17, 0x18):
+                    ln = der[j + 1]
+                    times.append((der[j], der[j + 2:j + 2 + ln]))
+                    j += 2 + ln
+                else:
+                    break
+            if len(times) == 2:
+                try:
+                    return [_asn1_time(t, v) for t, v in times]
+                except ValueError:
+                    pass
+        i += 1
+    return None
+
+
+def hostport_of(target: str):
+    """Host and port from an http(s) URL, defaulting the port by scheme."""
+    m = re.match(r"https?://([^/:]+)(?::(\d+))?", target)
+    if not m:
+        return None, None
+    return m.group(1), int(m.group(2) or (443 if target.startswith("https") else 80))
+
+
+def renewal_threshold(life_seconds: float) -> float:
+    """How little time left counts as "renew this soon", for a cert of this
+    lifetime. 15% of its own life, floored at an hour so a twelve-hour cert
+    is not permanently alarming, and capped at 21 days so a ten-year one is
+    not either."""
+    return min(max(life_seconds * 0.15, 3600), 21 * 86400)
+
+
+def cert_info(host: str, port: int, timeout: int):
+    """When does this certificate expire, and is that soon *for this cert*?
+
+    A fixed "warn under 14 days" is useless here: Caddy's internal CA issues
+    twelve-HOUR certificates and renews them automatically, so a fixed
+    threshold would alert twice a day about something working perfectly.
+    Judge each cert against its own lifetime instead.
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            with ctx.wrap_socket(s, server_hostname=host) as ss:
+                der = ss.getpeercert(binary_form=True)
+    except OSError as e:
+        return None, str(e)
+    if not der:
+        return None, "no certificate presented"
+    v = _validity(der)
+    if not v:
+        return None, "could not read the validity dates"
+
+    nb, na = v
+    now_ = datetime.now(timezone.utc)
+    left = (na - now_).total_seconds()
+    life = max((na - nb).total_seconds(), 1.0)
+    threshold = renewal_threshold(life)
+    return {
+        "not_before": int(nb.timestamp()),
+        "not_after": int(na.timestamp()),
+        "days_left": round(left / 86400, 2),
+        "lifetime_days": round(life / 86400, 2),
+        "expired": left <= 0,
+        "renew_soon": 0 < left < threshold,
+    }, "ok"
 
 
 def run(check: dict, timeout: int):

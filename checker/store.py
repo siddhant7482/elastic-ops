@@ -129,6 +129,16 @@ CREATE TABLE IF NOT EXISTS guests (
 );
 CREATE INDEX IF NOT EXISTS hostmetrics_k ON hostmetrics(host, ts);
 
+CREATE TABLE IF NOT EXISTS certs (
+  name       TEXT PRIMARY KEY,      -- the check this cert belongs to
+  host       TEXT, port INTEGER,
+  not_before INTEGER, not_after INTEGER,
+  days_left  REAL, lifetime_days REAL,
+  expired    INTEGER, renew_soon INTEGER,
+  detail     TEXT,
+  ts         INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY, pwhash TEXT NOT NULL,
   display TEXT, role TEXT DEFAULT 'admin', created_ts INTEGER NOT NULL
@@ -256,6 +266,26 @@ class Store:
             out.append({"days_ago": d,
                         "pct": round(100.0 * good / tot, 2) if tot else None})
         return out
+
+    # -- certificates ----------------------------------------------------
+    def certs(self):
+        return self.q("SELECT * FROM certs ORDER BY days_left")
+
+    def put_cert(self, name, host, port, info, detail):
+        self.x(
+            "INSERT INTO certs(name,host,port,not_before,not_after,days_left,"
+            "lifetime_days,expired,renew_soon,detail,ts) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET host=excluded.host, port=excluded.port, "
+            "not_before=excluded.not_before, not_after=excluded.not_after, "
+            "days_left=excluded.days_left, lifetime_days=excluded.lifetime_days, "
+            "expired=excluded.expired, renew_soon=excluded.renew_soon, "
+            "detail=excluded.detail, ts=excluded.ts",
+            (name, host, port,
+             (info or {}).get("not_before"), (info or {}).get("not_after"),
+             (info or {}).get("days_left"), (info or {}).get("lifetime_days"),
+             1 if (info or {}).get("expired") else 0,
+             1 if (info or {}).get("renew_soon") else 0, detail, now()))
+
 
     def prune(self, results_days=120, events_days=400):
         t = now()

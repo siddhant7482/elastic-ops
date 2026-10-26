@@ -197,6 +197,7 @@ class Engine:
     def __init__(self, cfg, store, notifier):
         self.cfg, self.store, self.note = cfg, store, notifier
         self.next_run = {}
+        self.next_cert = {}
         names = []
         for c in cfg.get("checks", []):
             store.register(c["name"], "check", c["group"], c["target"], c["severity"])
@@ -217,6 +218,17 @@ class Engine:
         if old == "unknown" and new_status == "up":
             return                      # the first successful check is not news
         self.note.send(name, new_status, severity, detail, in_maintenance(self.cfg))
+
+    def refresh_cert(self, c):
+        """Certificates move slowly, so look every six hours rather than every
+        cycle — this opens a TLS session, which is not free."""
+        if c["type"] != "https":
+            return
+        host, port = probes.hostport_of(c["target"])
+        if not host:
+            return
+        info, detail = probes.cert_info(host, port, self.cfg["settings"]["timeout"])
+        self.store.put_cert(c["name"], host, port, info, detail)
 
     def run_check(self, c):
         ok, ms, detail = probes.run(c, self.cfg["settings"]["timeout"])
@@ -279,6 +291,12 @@ class Engine:
                         self.run_check(c)
                     except Exception as e:
                         log(f"check '{c['name']}' raised: {e}")
+                if t >= self.next_cert.get(c["name"], 0):
+                    self.next_cert[c["name"]] = t + 6 * 3600
+                    try:
+                        self.refresh_cert(c)
+                    except Exception as e:
+                        log(f"cert check '{c['name']}' raised: {e}")
             self.sweep_jobs()
             if t - last_deadman >= 60:
                 self.deadman()

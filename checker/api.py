@@ -294,6 +294,15 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     "gaps": gaps,
                 })
 
+            if path == "/api/certs":
+                rows = store.certs()
+                return self._send(200, {
+                    "certs": rows,
+                    "expired": sum(1 for r in rows if r["expired"]),
+                    "renew_soon": sum(1 for r in rows if r["renew_soon"]),
+                    "unreadable": sum(1 for r in rows if r["not_after"] is None),
+                })
+
             if path == "/api/inventory":
                 return self._send(200, {
                     "hosts": inventory.get("hosts", []),

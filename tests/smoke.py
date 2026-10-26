@@ -292,6 +292,31 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\ncertificate expiry, judged by each cert's own lifetime")
+    # A fixed threshold would alert twice a day about a 12h auto-renewing cert
+    # and stay silent about a 90-day one with a week left. Both must be right.
+    hour, day = 3600.0, 86400.0
+    check("a 12h cert warns only in its last ~2h",
+          abs(probes.renewal_threshold(12 * hour) - 1.8 * hour) < 60,
+          probes.renewal_threshold(12 * hour) / hour)
+    check("a 90-day cert warns at ~13.5 days",
+          abs(probes.renewal_threshold(90 * day) - 13.5 * day) < day,
+          probes.renewal_threshold(90 * day) / day)
+    check("a 1000-year cert is capped at 21 days, not 150 years",
+          probes.renewal_threshold(365000 * day) == 21 * day)
+    check("a 1-minute cert still gets an hour's floor",
+          probes.renewal_threshold(60) == hour)
+    check("url parsing defaults the port by scheme",
+          probes.hostport_of("https://10.10.1.90/") == ("10.10.1.90", 443)
+          and probes.hostport_of("http://10.10.1.32/zabbix/") == ("10.10.1.32", 80)
+          and probes.hostport_of("https://10.10.10.22:8007/") == ("10.10.10.22", 8007))
+    info, why = probes.cert_info("127.0.0.1", port, 2)
+    check("a plain-http port yields no certificate, without raising",
+          info is None and why, why)
+
+    code, body, _ = c.get("/api/certs")
+    check("/api/certs answers", code == 200 and "certs" in json.loads(body), code)
+
     print("\nalert routing — severity and the clock")
     n = Notifier({"settings": {"webhook_url": "", "webhook_header": "", "timeout": 1,
                                "notify_hours": "08:00-18:00",
