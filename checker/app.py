@@ -37,6 +37,10 @@ def gmail_auth(cfg):
     mailer.interactive_auth(s.get("gmail_client_id"), s.get("gmail_client_secret"))
 
 
+def cfg_path_of(args):
+    return next((a for a in args if not a.startswith("--")), "checks.toml")
+
+
 def matrix_cli(cfg, args):
     """Token and room-id plumbing, so nobody has to hand-roll curl against the
     Matrix client API. Returns True if the process should stop afterwards."""
@@ -91,7 +95,15 @@ def matrix_cli(cfg, args):
                                  "test message - email alerting is wired up")
                 print(f"{cls.__name__}: {'sent' if ok else why}")
                 return True
-        print("neither Gmail nor SMTP is configured — see checks.toml")
+        g, sm = mailer.Gmail(s), mailer.Smtp(s)
+        print("Neither Gmail nor SMTP is configured.\n")
+        print("  Gmail is missing: " + ", ".join(g.missing()))
+        print("  SMTP  is missing: " + ", ".join(sm.missing()))
+        print("\nValues in brackets come from .env; everything else from "
+              "checks.toml.")
+        dotenv = os.path.join(os.path.dirname(os.path.abspath(cfg_path_of(args))),
+                              os.pardir, ".env")
+        print(f"Looked for an env file at: {os.path.normpath(dotenv)}")
         return True
 
     if "--whatsapp-test" in args:

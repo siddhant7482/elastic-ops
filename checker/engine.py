@@ -63,7 +63,39 @@ ENV_OVERRIDES = {
 }
 
 
+def load_dotenv(*candidates):
+    """Read KEY=value files into the environment, without overwriting anything
+    already set.
+
+    systemd hands the service its EnvironmentFile, but a human running the CLI
+    by hand gets nothing — so --mail-test reported "not configured" about a
+    perfectly good .env sitting two directories up. Loading it here makes the
+    command line and the service see the same world.
+    """
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.readlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            # Anything already in the environment wins: systemd and an
+            # explicit export are both more deliberate than a file.
+            if k and k not in os.environ:
+                os.environ[k] = v
+        return path
+    return None
+
+
 def load_config(path):
+    here = os.path.dirname(os.path.abspath(path)) or "."
+    load_dotenv(os.path.join(here, ".env"),
+                os.path.join(here, os.pardir, ".env"))
     with open(path, "rb") as fh:
         cfg = tomllib.load(fh)
     s = cfg.setdefault("settings", {})

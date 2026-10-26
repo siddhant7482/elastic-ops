@@ -36,6 +36,7 @@ except ModuleNotFoundError:                                          # Python 3.
     sys.modules["tomllib"] = tomli
 
 import api                                                           # noqa: E402
+import mailer as mailer_mod                                          # noqa: E402
 import auth as authmod                                               # noqa: E402
 from engine import Engine, Notifier, load_config, load_inventory     # noqa: E402
 from store import Portal, Store                                      # noqa: E402
@@ -293,8 +294,34 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\n.env is read by the CLI too, not only by systemd")
+    envdir = os.path.join(tmp, "envtest")
+    os.makedirs(os.path.join(envdir, "checker"), exist_ok=True)
+    with open(os.path.join(envdir, ".env"), "w", encoding="utf-8") as fh:
+        fh.write('# a comment\n\nOPS_GMAIL_CLIENT_SECRET=from-file\n'
+                 'OPS_GMAIL_REFRESH_TOKEN="quoted-value"\n')
+    inner = os.path.join(envdir, "checker", "checks.toml")
+    with open(inner, "w", encoding="utf-8") as fh:
+        db = os.path.join(envdir, "x.db").replace("\\", "/")
+        fh.write(f'[settings]\ndb = "{db}"\ngmail_client_id = "cid"\n'
+                 'mail_from = "a@b"\nmail_to = "c@d"\n')
+    for k in ("OPS_GMAIL_CLIENT_SECRET", "OPS_GMAIL_REFRESH_TOKEN"):
+        os.environ.pop(k, None)
+    s2 = load_config(inner)["settings"]
+    check("a .env one directory up is picked up",
+          s2["gmail_client_secret"] == "from-file", s2["gmail_client_secret"])
+    check("quotes are stripped from values",
+          s2["gmail_refresh_token"] == "quoted-value", s2["gmail_refresh_token"])
+    os.environ["OPS_GMAIL_CLIENT_SECRET"] = "from-real-env"
+    s3 = load_config(inner)["settings"]
+    check("a real environment variable beats the file",
+          s3["gmail_client_secret"] == "from-real-env", s3["gmail_client_secret"])
+    os.environ.pop("OPS_GMAIL_CLIENT_SECRET", None)
+    check("missing() names the fields rather than shrugging",
+          "mail_to" in mailer_mod.Gmail({}).missing(), mailer_mod.Gmail({}).missing())
+
     print("\nemail alerting")
-    import mailer
+    mailer = mailer_mod
     check("unconfigured gmail reports itself as such", not mailer.Gmail({}).configured)
     ok, why = mailer.Gmail({}).send("x", "down", "page", "y")
     check("sending while unconfigured is a no-op, not a crash",

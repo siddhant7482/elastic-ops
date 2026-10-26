@@ -80,10 +80,16 @@ class Gmail:
         self._token = ""
         self._expires = 0
 
+    def missing(self):
+        need = {"gmail_client_id": self.client_id,
+                "gmail_client_secret (OPS_GMAIL_CLIENT_SECRET)": self.client_secret,
+                "gmail_refresh_token (OPS_GMAIL_REFRESH_TOKEN)": self.refresh_token,
+                "mail_from": self.sender, "mail_to": self.to}
+        return [k for k, v in need.items() if not v]
+
     @property
     def configured(self):
-        return bool(self.client_id and self.client_secret and self.refresh_token
-                    and self.sender and self.to)
+        return not self.missing()
 
     def access_token(self):
         if self._token and time.time() < self._expires - 60:
@@ -140,9 +146,15 @@ class Smtp:
         self.portal_url = s.get("portal_url") or ""
         self.timeout = s.get("timeout", 10)
 
+    def missing(self):
+        need = {"smtp_host": self.host, "smtp_user": self.user,
+                "smtp_password (OPS_SMTP_PASSWORD)": self.password,
+                "mail_to": self.to}
+        return [k for k, v in need.items() if not v]
+
     @property
     def configured(self):
-        return bool(self.host and self.user and self.password and self.to)
+        return not self.missing()
 
     def send(self, name, status, severity, detail):
         if not self.configured:
