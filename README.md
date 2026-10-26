@@ -239,7 +239,7 @@ Then include VM 9503 on pepper in the nightly job like any other machine.
 | Job | What it protects |
 |---|---|
 | **Repository guards** | The runtime imports nothing outside the standard library, and no secret has been committed |
-| **Smoke tests** | 57 assertions against a real server, on Python 3.11, 3.12 and 3.13 |
+| **Smoke tests** | 94 assertions against a real server, on Python 3.11, 3.12 and 3.13 |
 | **Compose config** | `docker-compose.yml` still parses |
 | **Lint** | ruff |
 
@@ -302,11 +302,11 @@ You lose the pre-deploy snapshot, the health gate and the deploy log in GitHub.
 ## Tests
 
 ```bash
-python3 tests/smoke.py     # 57 assertions against a real server
+python3 tests/smoke.py     # 94 assertions against a real server
 python3 tests/hygiene.py   # stdlib-only, no committed secrets
 ```
 
-Starts the real server against a temporary database and walks through 55
+Starts the real server against a temporary database and walks through 94
 assertions: open routes, login and lockout, every read endpoint, creating and
 resolving an incident, CSRF rejection, ingest with a good and a bad token, job
 check-in, path traversal, and sign-out. Exit code 0 means all passed.
@@ -316,13 +316,39 @@ parser that became `tomllib` in 3.11. The container runs 3.12 and needs nothing.
 
 ---
 
+## What it watches, beyond "is the port open"
+
+**Coverage.** The collectors enumerate every guest on every host. The portal
+subtracts: everything that exists, minus everything checked, is everything
+nobody is watching. It is on the Services page, and it is how you find out
+that the domain controller was never monitored. Guests that genuinely do not
+need a check go in `unmonitored_ok` in `inventory.toml` — every entry there
+being an explicit decision that nobody gets told when that machine stops.
+
+**Named SQL instances.** `type = "mssql"` with a target of `host\INSTANCE`
+asks SQL Browser on UDP 1434 which port the instance is on, then connects to
+that. A named instance gets a dynamic port that moves when the service
+restarts, so pinning the number produces a check that goes red for a reason
+nobody can act on. That had already happened once here.
+
+**Certificates.** Every `https` check also reads its certificate, refreshed
+every six hours. Each one is judged against *its own* lifetime — 15% of it,
+floored at an hour, capped at 21 days — because a fixed "warn under 14 days"
+would alert twice a day about a Caddy internal cert that lives twelve hours
+and renews itself, while saying nothing useful about one that runs to 3025.
+
+**Silences.** A Silence button on each service mutes it for a stated number of
+hours, with a reason. Nothing longer than a week is accepted. Silencing stops
+the message and never the measurement: the check still runs, the transition is
+still recorded, and it still appears on the timeline.
+
 ## Known gaps
 
-- The toggle switches on the Alerting page are display only. Routing lives in
-  `inventory.toml`; the switches do not yet write back to it.
 - Restore drills are recorded by hand in `inventory.toml`. Nothing verifies a
   restore actually happened.
 - There is no HTTPS. It is reachable on the LAN over plain http, which is why
   `cookie_secure` is off.
-- Certificate expiry on the Security page is hard-coded to zero; nothing checks
-  certificates yet.
+- Alert routing rows on the Alerting page describe intent and are edited in
+  `inventory.toml`. What the engine enforces is the `severity` on each check
+  plus the notify window — which the page now shows alongside them.
+- Nothing checks UDP services, or anything needing authentication to probe.
