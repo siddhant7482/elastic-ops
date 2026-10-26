@@ -22,8 +22,6 @@ the thing that watches the estate should not itself be a dependency problem.
 
 import os
 import sys
-import time
-import urllib.parse
 import threading
 import http.server
 
@@ -34,84 +32,9 @@ from store import Portal, Store
 
 
 def gmail_auth(cfg):
-    """One-time OAuth consent, catching the redirect on loopback.
-
-    Google disabled the out-of-band "copy this code" flow in 2022, so the
-    only route for an installed app is a redirect to localhost. That means
-    running this where a browser is — your laptop, not pepper — and then
-    pasting the refresh token into pepper's .env.
-    """
-    import http.server
-    import threading
-    import webbrowser
-
     import mailer
-
     s = cfg["settings"]
-    cid = s.get("gmail_client_id") or input("client id: ").strip()
-    secret = s.get("gmail_client_secret") or input("client secret: ").strip()
-    if not (cid and secret):
-        print("a client id and secret are required — make an OAuth client of "
-              "type 'Desktop app' in the Google Cloud console")
-        return
-
-    got = {}
-
-    class Catch(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            got.update({k: v[0] for k, v in q.items()})
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"<h2>Done. You can close this tab and return "
-                             b"to the terminal.</h2>")
-
-        def log_message(self, *a):
-            pass
-
-    srv = http.server.HTTPServer(("127.0.0.1", 0), Catch)
-    redirect = f"http://127.0.0.1:{srv.server_address[1]}"
-    threading.Thread(target=srv.handle_request, daemon=True).start()
-
-    url = mailer.consent_url(cid, redirect)
-    print(f"\nAdd this EXACT redirect URI to the OAuth client first:\n  {redirect}\n")
-    print(f"Then open:\n  {url}\n")
-    try:
-        webbrowser.open(url)
-    except Exception:
-        # Headless machines have no browser; the URL is printed above, which
-        # is the only part that matters.
-        print("(could not open a browser here — use the link above)")
-    print("waiting for the redirect...")
-
-    for _ in range(300):
-        if got:
-            break
-        time.sleep(1)
-    srv.server_close()
-
-    if "error" in got:
-        print(f"refused: {got['error']}")
-        return
-    if "code" not in got:
-        print("timed out waiting for consent")
-        return
-    try:
-        r = mailer.exchange_code(cid, secret, got["code"], redirect)
-    except Exception as e:
-        print(f"could not exchange the code: {e}")
-        return
-    rt = r.get("refresh_token")
-    if not rt:
-        print("Google returned no refresh token. That happens when the app was "
-              "already authorised; revoke it at myaccount.google.com/permissions "
-              "and run this again.")
-        return
-    print("\nPut these in .env on pepper:\n")
-    print(f"  OPS_GMAIL_CLIENT_SECRET={secret}")
-    print(f"  OPS_GMAIL_REFRESH_TOKEN={rt}\n")
-    print("and set gmail_client_id, mail_from and mail_to in checks.toml")
+    mailer.interactive_auth(s.get("gmail_client_id"), s.get("gmail_client_secret"))
 
 
 def matrix_cli(cfg, args):
