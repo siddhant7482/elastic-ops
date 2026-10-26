@@ -293,6 +293,49 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\nwhatsapp alerting")
+    import whatsapp as wamod
+    check("unconfigured whatsapp reports itself as such",
+          not wamod.WhatsApp({}).configured)
+    ok, why = wamod.WhatsApp({}).send("x", "down", "page", "y")
+    check("sending while unconfigured is a no-op, not a crash",
+          ok is False and "not configured" in why, why)
+
+    shapes = {
+        "waha": ({"whatsapp_provider": "waha", "whatsapp_url": "http://h:3000",
+                  "whatsapp_to": "44@c.us"}, "http://h:3000/api/sendText"),
+        "wppconnect": ({"whatsapp_provider": "wppconnect", "whatsapp_url": "http://h:21465",
+                        "whatsapp_to": "44", "whatsapp_session": "s"},
+                       "http://h:21465/api/s/send-message"),
+        "evolution": ({"whatsapp_provider": "evolution", "whatsapp_url": "http://h:8080",
+                       "whatsapp_to": "44", "whatsapp_session": "s"},
+                      "http://h:8080/message/sendText/s"),
+        "callmebot": ({"whatsapp_provider": "callmebot", "whatsapp_to": "+44",
+                       "whatsapp_token": "k"}, "api.callmebot.com"),
+    }
+    for prov, (conf, expect) in shapes.items():
+        w = wamod.WhatsApp(conf)
+        check(f"{prov} is configured", w.configured, conf)
+        req, _ = w._request("hello")
+        check(f"{prov} builds the right url", expect in req.full_url, req.full_url)
+
+    tw = wamod.WhatsApp({"whatsapp_provider": "twilio", "whatsapp_url": "https://api/x",
+                         "whatsapp_token": "SID:AUTH", "whatsapp_to": "+44",
+                         "whatsapp_from": "+1"})
+    check("twilio is configured", tw.configured)
+    req, _ = tw._request("hello")
+    check("twilio uses basic auth and form encoding",
+          req.get_header("Authorization", "").startswith("Basic ")
+          and "form-urlencoded" in req.get_header("Content-type", ""),
+          req.get_header("Content-type"))
+    check("twilio without a from number is not configured",
+          not wamod.WhatsApp({"whatsapp_provider": "twilio", "whatsapp_url": "u",
+                              "whatsapp_token": "t", "whatsapp_to": "+44"}).configured)
+
+    msg = wamod.compose("CFP / WinMan SQL", "down", "page", "connection refused")
+    check("the message leads with the state, for a lock screen",
+          msg.splitlines()[0].endswith("DOWN: CFP / WinMan SQL"), msg.splitlines()[0])
+
     print("\nmatrix alerting")
     import matrix as matrixmod
     m = matrixmod.Matrix("", "", "")

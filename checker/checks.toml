@@ -28,6 +28,31 @@ cookie_secure     = false
 # Without it, backup and host metrics cannot be posted in.
 ingest_token      = ""
 
+# WhatsApp. No gateway existed on the estate when this was written, so pick
+# one and fill in the four values it needs:
+#
+#   waha        url = http://host:3000          session, to
+#   wppconnect  url = http://host:21465         session, to, token
+#   evolution   url = http://host:8080          session, to, token
+#   twilio      url = https://api.twilio.com/2010-04-01/Accounts/<SID>/Messages.json
+#               token = "<SID>:<auth token>", from = your Twilio number
+#   callmebot   to and token only
+#
+# to = "4477...@c.us" for waha, or "+4477..." for twilio/callmebot.
+#
+#   python3 app.py checks.toml --whatsapp-test
+#
+# Read whatsapp.py before choosing. The self-hosted options drive a real
+# WhatsApp account over the Web protocol: sessions drop and accounts can be
+# banned. And a gateway hosted on pepper dies WITH the portal, so a pepper
+# failure would send nothing — which is the 4 October failure rebuilt.
+whatsapp_provider = ""          # waha | wppconnect | evolution | twilio | callmebot | generic
+whatsapp_url      = ""
+whatsapp_session  = "default"
+whatsapp_to       = ""
+whatsapp_from     = ""          # twilio only
+whatsapp_token    = ""          # set via OPS_WHATSAPP_TOKEN
+
 # Alerts into Matrix. The estate already runs Synapse behind
 # messenger.elasticgroup.co.uk with an Element client branded "Elastic Group
 # Messenger", so alerts land where the team already looks. E2EE is disabled on

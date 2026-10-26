@@ -11,6 +11,7 @@ Elastic Ops — entry point.
     python3 app.py checks.toml --matrix-login      get an alerting access token
     python3 app.py checks.toml --matrix-rooms      list rooms and their IDs
     python3 app.py checks.toml --matrix-test       send one test message
+    python3 app.py checks.toml --whatsapp-test     send one test WhatsApp
 
 Python 3.11+, standard library only. Nothing to pip install, which is the point:
 the thing that watches the estate should not itself be a dependency problem.
@@ -66,6 +67,18 @@ def matrix_cli(cfg, args):
         for rid, name in rooms:
             print(f"  {rid:<48} {name}")
         print("\nPut the chosen id in checks.toml as matrix_room")
+        return True
+
+    if "--whatsapp-test" in args:
+        import whatsapp as wamod
+        w = wamod.WhatsApp(s)
+        if not w.configured:
+            print("set whatsapp_provider, whatsapp_to and the provider's url/token")
+            print("in checks.toml, with the token in .env as OPS_WHATSAPP_TOKEN")
+            return True
+        ok, why = w.send("Elastic Ops", "up", "notify",
+                         "test message - WhatsApp alerting is wired up")
+        print("sent" if ok else why)
         return True
 
     if "--matrix-test" in args:

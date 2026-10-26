@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 import matrix as matrixmod
 import probes
+import whatsapp as wamod
 from store import now
 
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -50,6 +51,7 @@ ENV_OVERRIDES = {
     "webhook_header": "OPS_WEBHOOK_HEADER",
     "deadman_url": "OPS_DEADMAN_URL",
     "matrix_token": "OPS_MATRIX_TOKEN",
+    "whatsapp_token": "OPS_WHATSAPP_TOKEN",
     # Not a secret — the container wants /data, a systemd unit wants
     # /var/lib/elastic-ops, and neither should have to edit a tracked file.
     "db": "OPS_DB",
@@ -69,6 +71,12 @@ def load_config(path):
     s.setdefault("webhook_url", "")
     s.setdefault("webhook_header", "")
     s.setdefault("deadman_url", "")
+    s.setdefault("whatsapp_provider", "")
+    s.setdefault("whatsapp_url", "")
+    s.setdefault("whatsapp_token", "")
+    s.setdefault("whatsapp_session", "default")
+    s.setdefault("whatsapp_to", "")
+    s.setdefault("whatsapp_from", "")
     s.setdefault("matrix_homeserver", "")
     s.setdefault("matrix_room", "")
     s.setdefault("matrix_token", "")
@@ -152,6 +160,7 @@ class Notifier:
         self.matrix = matrixmod.Matrix(s.get("matrix_homeserver"),
                                        s.get("matrix_room"),
                                        s.get("matrix_token"), s["timeout"])
+        self.whatsapp = wamod.WhatsApp(s)
 
     def off_hours(self, at=None):
         """True when a 'notify' alert should be held. Empty notify_hours
@@ -186,10 +195,11 @@ class Notifier:
         if held:
             return
 
-        if self.matrix.configured:
-            ok, why = self.matrix.send(name, status, severity, detail)
-            if not ok:
-                log(why)
+        for channel in (self.whatsapp, self.matrix):
+            if channel.configured:
+                ok, why = channel.send(name, status, severity, detail)
+                if not ok:
+                    log(why)
 
         if not self.url:
             return
