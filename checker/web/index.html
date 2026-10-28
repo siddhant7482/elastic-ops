@@ -83,6 +83,9 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
   box-shadow:0 8px 14px -13px var(--dk)}
 .ham{display:none}
 .topmark{display:none;width:32px;height:32px;border-radius:10px;flex:none}
+.pagename{display:none}
+.appname{display:none}
+.dock{display:none}
 .top h1{font-size:21px;font-weight:800;letter-spacing:-.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search{margin-left:auto;display:flex;align-items:center;gap:9px;padding:10px 16px;border-radius:999px;box-shadow:var(--i-md);
   min-width:0;width:258px;cursor:text}
@@ -364,10 +367,39 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   .top{padding:11px max(16px,env(safe-area-inset-right,0px)) 11px
        max(16px,env(safe-area-inset-left,0px));gap:10px}
   .top h1{font-size:17px;min-width:0}
-  /* The sidebar normally carries the brand; behind a hamburger it carries
-     nothing, so the mark comes to the top bar. */
+  /* The sidebar normally carries the brand and the navigation. On a phone
+     it is behind a drawer, so the brand moves to the top bar and the
+     navigation becomes a dock within thumb reach at the bottom. */
   .topmark{display:grid}
   .top{gap:9px}
+  .top h1{display:none}
+  .appname{display:block;font-size:16px;font-weight:800;letter-spacing:-.03em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+  .pagename{display:block;font-size:22px;font-weight:800;letter-spacing:-.03em;
+    margin:2px 0 16px}
+
+  .dock{display:flex;position:fixed;z-index:30;left:50%;
+    transform:translateX(-50%);
+    bottom:calc(12px + env(safe-area-inset-bottom,0px));
+    max-width:calc(100vw - 20px);background:var(--paper);
+    border-radius:999px;box-shadow:var(--r-lg);padding:6px;gap:2px;
+    overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}
+  .dock::-webkit-scrollbar{display:none}
+  .dk{appearance:none;border:0;background:none;cursor:pointer;flex:none;
+    width:42px;height:42px;border-radius:14px;display:grid;place-items:center;
+    color:var(--ink-3);position:relative;padding:0}
+  .dk svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8;
+    stroke-linecap:round;stroke-linejoin:round}
+  .dk[aria-current="page"]{background:var(--forest);color:#EAF6EF}
+  .dk .ct{position:absolute;top:3px;right:4px;min-width:15px;height:15px;
+    border-radius:999px;background:var(--bad);color:#fff;font-family:var(--mono);
+    font-size:9px;font-weight:600;display:grid;place-items:center;padding:0 3px;
+    box-shadow:0 0 0 2px var(--paper)}
+  .dk[aria-current="page"] .ct{box-shadow:0 0 0 2px var(--forest)}
+
+  /* room for the dock, so the last card is never hidden behind it */
+  .wrap{padding-bottom:104px}
   .grid{gap:14px}
   .mb{margin-bottom:14px}
   .sh{margin:22px 0 11px;gap:9px}
@@ -458,9 +490,10 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
 
 <div class="mainwrap">
   <header class="top">
-    <button class="ib ham" onclick="sideToggle()" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button class="ib ham" onclick="sideToggle()" aria-label="Account and settings"><span class="av" id="hamav">··</span></button>
     <span class="bmark topmark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg></span>
     <h1 id="ptitle">Overview</h1>
+    <span class="appname">Elastic Ops</span>
     <div class="search" onclick="openPal()" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openPal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>
       <span>Search the estate</span><kbd>⌘K</kbd></div>
@@ -469,6 +502,7 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   </header>
 
   <main class="wrap">
+  <h2 class="pagename" id="pagename">Overview</h2>
 
   <!-- OVERVIEW -->
   <section id="v-overview">
@@ -692,6 +726,8 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   </main>
 </div>
 </div>
+
+<nav class="dock" id="dock" aria-label="Sections"></nav>
 
 <script>
 /* ============================================================ icons */
@@ -972,6 +1008,8 @@ function renderAll(){
   var u=S.me;
   H("mename").textContent=u.display||u.username;
   H("merole").textContent=u.role;
+  H("hamav").textContent=(u.display||u.username).split(/\s+/)
+    .map(function(w){return w[0]}).join("").slice(0,2).toUpperCase();
   H("meav").textContent=(u.display||u.username).split(/\s+/).map(function(w){return w[0]})
     .join("").slice(0,2).toUpperCase();
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
@@ -1804,6 +1842,13 @@ function counts(){
 }
 function renderNav(){
   var c=counts();
+  H("dock").innerHTML=NAV.map(function(g){
+    return g[1].map(function(n){
+      var k=c[n[0]]||0;
+      return '<button class="dk" id="d-'+n[0]+'" data-v="'+n[0]+'" onclick="go(this.dataset.v)"'
+        +(n[0]===current?' aria-current="page"':'')
+        +' aria-label="'+n[1].replace("&amp;","and")+'" title="'+n[1].replace("&amp;","and")+'">'
+        +svg(n[2])+(k?'<span class="ct">'+k+'</span>':'')+'</button>'}).join("")}).join("");
   H("nav").innerHTML=NAV.map(function(g){
     return '<div class="gl">'+g[0]+'</div>'+g[1].map(function(n){
       var k=c[n[0]]||0;
@@ -1815,10 +1860,15 @@ function go(v){
   current=v;
   views.forEach(function(k){
     H("v-"+k).hidden=(k!==v);
-    var b=H("n-"+k); if(!b)return;
-    if(k===v)b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
+    [H("n-"+k), H("d-"+k)].forEach(function(b){
+      if(!b)return;
+      if(k===v)b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
+    });
   });
+  var on=H("d-"+v);
+  if(on&&on.scrollIntoView)on.scrollIntoView({block:"nearest",inline:"center"});
   H("ptitle").innerHTML=titles[v];
+  H("pagename").innerHTML=titles[v];
   try{history.replaceState(null,"","#"+v)}catch(e){}
   sideClose(); window.scrollTo(0,0);
 }
