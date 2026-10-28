@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Elastic Ops</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230A5A43%22/%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23A8E0C4%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h16M8%2021h9%22/%3E%3Ccircle%20cx%3D%2221.5%22%20cy%3D%2221%22%20r%3D%222.4%22/%3E%3C/g%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230A5A43%22/%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23A8E0C4%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h16M8%2021h9%22/%3E%3Ccircle%20cx%3D%2221.5%22%20cy%3D%2221%22%20r%3D%222.4%22/%3E%3C/g%3E%3C/svg%3E">
+<meta name="theme-color" content="#EBEEF3">
+<link rel="manifest" href="/assets/manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Elastic Ops">
+<meta name="application-name" content="Elastic Ops">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
@@ -75,6 +82,7 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
   padding:14px max(16px,env(safe-area-inset-right,0px)) 14px 22px;
   box-shadow:0 8px 14px -13px var(--dk)}
 .ham{display:none}
+.topmark{display:none;width:32px;height:32px;border-radius:10px;flex:none}
 .top h1{font-size:21px;font-weight:800;letter-spacing:-.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search{margin-left:auto;display:flex;align-items:center;gap:9px;padding:10px 16px;border-radius:999px;box-shadow:var(--i-md);
   min-width:0;width:258px;cursor:text}
@@ -355,7 +363,11 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
         max(16px,env(safe-area-inset-left,0px))}
   .top{padding:11px max(16px,env(safe-area-inset-right,0px)) 11px
        max(16px,env(safe-area-inset-left,0px));gap:10px}
-  .top h1{font-size:17px}
+  .top h1{font-size:17px;min-width:0}
+  /* The sidebar normally carries the brand; behind a hamburger it carries
+     nothing, so the mark comes to the top bar. */
+  .topmark{display:grid}
+  .top{gap:9px}
   .grid{gap:14px}
   .mb{margin-bottom:14px}
   .sh{margin:22px 0 11px;gap:9px}
@@ -447,6 +459,7 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
 <div class="mainwrap">
   <header class="top">
     <button class="ib ham" onclick="sideToggle()" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <span class="bmark topmark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg></span>
     <h1 id="ptitle">Overview</h1>
     <div class="search" onclick="openPal()" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openPal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>

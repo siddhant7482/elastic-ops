@@ -706,6 +706,16 @@ def main():
     check("path traversal is blocked", code in (403, 404), code)
     code, body, _ = c.get("/assets/nope.css")
     check("a missing asset is a 404", code == 404, code)
+    code, body, hdr = c.get("/assets/manifest.json")
+    check("the web manifest serves", code == 200 and b'"Elastic Ops"' in body, code)
+    check("it is served as json",
+          "json" in hdr.get("Content-Type", ""), hdr.get("Content-Type"))
+    code, body, hdr = c.get("/assets/icon.svg")
+    check("the app icon serves as svg",
+          code == 200 and "svg" in hdr.get("Content-Type", ""), hdr.get("Content-Type"))
+    code, body, _ = c.get("/")
+    check("the page carries an icon and a theme colour",
+          b"apple-touch-icon" in body and b"theme-color" in body)
 
     print("\nsigning out")
     code, _, hdr = c.post_form("/logout", {})

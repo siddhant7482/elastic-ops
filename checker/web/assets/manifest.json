@@ -1,0 +1,19 @@
+{
+  "name": "Elastic Ops",
+  "short_name": "Elastic Ops",
+  "description": "Estate console for the Elastic Group infrastructure",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EBEEF3",
+  "theme_color": "#EBEEF3",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
