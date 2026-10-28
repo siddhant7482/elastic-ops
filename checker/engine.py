@@ -118,6 +118,7 @@ def load_config(path):
     s.setdefault("mail_from", "")
     s.setdefault("mail_to", "")
     s.setdefault("portal_url", "")
+    s.setdefault("printer_interval", 300)   # seconds between printer polls
     s.setdefault("whatsapp_provider", "")
     s.setdefault("whatsapp_url", "")
     s.setdefault("whatsapp_token", "")
@@ -322,8 +323,10 @@ class Engine:
         self.store.put_cert(c["name"], host, port, info, detail)
 
     def poll_printers(self):
-        """Toner does not move quickly, and SNMP on a sleeping printer can be
-        slow, so this runs every fifteen minutes rather than every cycle."""
+        """How often is a trade-off, not a free choice: SNMP on a sleeping
+        printer takes a few seconds and the walk touches several tables, so
+        this runs on its own timer rather than every cycle. printer_interval
+        in checks.toml sets it."""
         for p in self.printers:
             host = p.get("host")
             if not host:
@@ -428,7 +431,7 @@ class Engine:
                         log(f"cert check '{c['name']}' raised: {e}")
             self.sweep_jobs()
             if t >= self.next_printer:
-                self.next_printer = t + 15 * 60
+                self.next_printer = t + self.cfg["settings"]["printer_interval"]
                 try:
                     self.poll_printers()
                 except Exception as e:

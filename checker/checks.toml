@@ -15,6 +15,10 @@ default_retries   = 3
 timeout           = 5
 
 web_dir           = "web"           # the portal's static files
+# How often printers are polled. Toner moves slowly, but the drawings redraw
+# from whatever was last read, so this is the real latency on seeing a change.
+# Each poll opens an SNMP session per printer and walks several tables.
+printer_interval  = 300             # seconds
 inventory         = "inventory.toml"
 
 # Sessions. cookie_secure must stay false until the portal is behind HTTPS —

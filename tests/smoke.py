@@ -426,6 +426,10 @@ def main():
           and store.put_printer_history("pr2", 11, {"T": 50.0}) is True)
     store.x("DELETE FROM printer_history")
 
+    check("the printer poll interval is configurable, defaulting to 5 minutes",
+          load_config(cfg_path)["settings"]["printer_interval"] == 300,
+          load_config(cfg_path)["settings"].get("printer_interval"))
+
     code, body, _ = c.get("/api/printers")
     check("/api/printers answers", code == 200 and "printers" in json.loads(body), code)
 
