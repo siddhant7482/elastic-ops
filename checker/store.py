@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS silences_target ON silences(target, until_ts);
 
 CREATE TABLE IF NOT EXISTS printers (
   host       TEXT PRIMARY KEY,
-  name       TEXT, model TEXT, location TEXT,
+  name       TEXT, model TEXT, location TEXT, serial TEXT,
   status     TEXT, state TEXT, detail TEXT,
   pages      INTEGER,
   payload    TEXT,                 -- supplies and trays, as json
@@ -344,16 +344,16 @@ class Store:
         return rows
 
     def put_printer(self, host, name, model, location, status, state, detail,
-                    pages, payload, error):
+                    pages, payload, error, serial=""):
         self.x(
-            "INSERT INTO printers(host,name,model,location,status,state,detail,"
-            "pages,payload,error,ts) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+            "INSERT INTO printers(host,name,model,location,serial,status,state,"
+            "detail,pages,payload,error,ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(host) DO UPDATE SET name=excluded.name, "
             "model=excluded.model, location=excluded.location, "
-            "status=excluded.status, state=excluded.state, detail=excluded.detail, "
-            "pages=excluded.pages, payload=excluded.payload, error=excluded.error, "
-            "ts=excluded.ts",
-            (host, name, model, location, status, state, detail, pages,
+            "serial=excluded.serial, status=excluded.status, state=excluded.state, "
+            "detail=excluded.detail, pages=excluded.pages, payload=excluded.payload, "
+            "error=excluded.error, ts=excluded.ts",
+            (host, name, model, location, serial, status, state, detail, pages,
              json.dumps(payload), error, now()))
 
     def forget_printers(self, hosts):

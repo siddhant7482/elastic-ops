@@ -340,10 +340,18 @@ class Engine:
                                       p.get("bad_percent", 10))
             self.store.put_printer(
                 host, p.get("name") or data["name"], data["model"],
-                p.get("location", ""), data["status"], state, detail,
-                data["pages"],
+                # The device usually knows where it is; config only overrides
+                # it when someone has bothered to fill that in.
+                p.get("location") or data.get("location", ""),
+                data["status"], state, detail, data["pages"],
                 {"supplies": data["supplies"], "trays": data["trays"],
-                 "errors": data["errors"], "descr": data["descr"]}, None)
+                 "errors": data["errors"], "descr": data["descr"],
+                 "console": data.get("console", ""),
+                 "covers": data.get("covers", []),
+                 "alerts": data.get("alerts", []),
+                 "colorants": data.get("colorants", []),
+                 "contact": data.get("contact", "")},
+                None, data.get("serial", ""))
 
     def run_check(self, c):
         ok, ms, detail = probes.run(c, self.cfg["settings"]["timeout"])

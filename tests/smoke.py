@@ -335,6 +335,29 @@ def main():
     check("a device error outranks supply levels",
           prt.worst({"supplies": [], "errors": ["jammed"]})[0] == "bad")
 
+    # Paper sizes come as two numbers and no name, so "420 x 297" has to
+    # become "A3" before anyone can act on it.
+    check("A4 decodes from micrometres", prt.paper_name(210000, 297000, 4) == "A4")
+    check("A3 decodes from micrometres", prt.paper_name(420000, 297000, 4) == "A3")
+    check("dimensions in either order give the same size",
+          prt.paper_name(297000, 210000, 4) == "A4")
+    check("a few mm of slack still matches",
+          prt.paper_name(296926, 209973, 4) == "A4")
+    check("ten-thousandths of an inch also work",
+          prt.paper_name(85000, 110000, 3) == "Letter",
+          prt.paper_name(85000, 110000, 3))
+    check("an unknown size falls back to millimetres",
+          prt.paper_name(100000, 500000, 4) == "100x500mm",
+          prt.paper_name(100000, 500000, 4))
+    check("an absent dimension yields no size", prt.paper_name(-2, -2, 4) is None)
+
+    check("an open cover outranks healthy supplies",
+          prt.worst({"supplies": [{"name": "T", "percent": 90}], "errors": [],
+                     "covers": [{"name": "Front Door", "open": True}]})[0] == "bad")
+    check("closed covers are not a finding",
+          prt.worst({"supplies": [{"name": "T", "percent": 90}], "errors": [],
+                     "covers": [{"name": "Front Door", "open": False}]})[0] == "ok")
+
     code, body, _ = c.get("/api/printers")
     check("/api/printers answers", code == 200 and "printers" in json.loads(body), code)
 

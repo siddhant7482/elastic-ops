@@ -30,11 +30,52 @@ SUP_DESC = "1.3.6.1.2.1.43.11.1.1.6"
 SUP_TYPE = "1.3.6.1.2.1.43.11.1.1.5"
 SUP_MAX = "1.3.6.1.2.1.43.11.1.1.8"
 SUP_LEVEL = "1.3.6.1.2.1.43.11.1.1.9"
+SERIAL = "1.3.6.1.2.1.43.5.1.1.17.1"
+SYS_LOCATION = "1.3.6.1.2.1.1.6.0"
+SYS_CONTACT = "1.3.6.1.2.1.1.4.0"
+CONSOLE = "1.3.6.1.2.1.43.16.5.1.2"
+COVER_DESC = "1.3.6.1.2.1.43.6.1.1.2"
+COVER_STATUS = "1.3.6.1.2.1.43.6.1.1.3"
+COLORANTS = "1.3.6.1.2.1.43.12.1.1.4"
+ALERT_SEVERITY = "1.3.6.1.2.1.43.18.1.1.2"
+ALERT_DESC = "1.3.6.1.2.1.43.18.1.1.8"
+TRAY_CAPACITY = "1.3.6.1.2.1.43.8.2.1.9"
+TRAY_DIM_UNIT = "1.3.6.1.2.1.43.8.2.1.3"
+TRAY_DIM_FEED = "1.3.6.1.2.1.43.8.2.1.4"
+TRAY_DIM_CROSS = "1.3.6.1.2.1.43.8.2.1.5"
+TRAY_MEDIA = "1.3.6.1.2.1.43.8.2.1.12"
 TRAY_DESC = "1.3.6.1.2.1.43.8.2.1.18"
 TRAY_LEVEL = "1.3.6.1.2.1.43.8.2.1.10"
 TRAY_MAX = "1.3.6.1.2.1.43.8.2.1.9"
 
 STATUS = {1: "other", 2: "unknown", 3: "idle", 4: "printing", 5: "warming up"}
+
+COVER = {1: "other", 2: "unknown", 3: "open", 4: "closed",
+         5: "interlock open", 6: "interlock closed"}
+ALERT_LEVEL = {1: "other", 3: "critical", 4: "warning", 5: "warning"}
+
+# Paper sizes in mm, matched to whichever is within a few mm. The MIB gives
+# two dimensions and no name, so "420 x 297" has to become "A3" somewhere.
+PAPER = [("A3", 297, 420), ("A4", 210, 297), ("A5", 148, 210), ("A6", 105, 148),
+         ("B4", 250, 353), ("B5", 176, 250), ("Letter", 216, 279),
+         ("Legal", 216, 356), ("Executive", 184, 267)]
+
+
+def paper_name(feed, cross, unit):
+    """prtInputDimUnit: 3 = ten-thousandths of an inch, 4 = micrometres."""
+    if not isinstance(feed, int) or not isinstance(cross, int):
+        return None
+    if feed <= 0 or cross <= 0:
+        return None
+    if unit == 3:
+        mm = (feed / 10000 * 25.4, cross / 10000 * 25.4)
+    else:
+        mm = (feed / 1000, cross / 1000)
+    short, long_ = min(mm), max(mm)
+    for name, s, l in PAPER:
+        if abs(short - s) <= 4 and abs(long_ - l) <= 4:
+            return name
+    return f"{round(short)}x{round(long_)}mm"
 
 SUPPLY_TYPE = {
     1: "other", 2: "unknown", 3: "toner", 4: "waste toner", 5: "ink",
@@ -95,7 +136,8 @@ def read(host, community="public", timeout=3.0):
     """Everything worth knowing about one printer. Returns (data, error)."""
     try:
         base = snmp.get(host, [SYS_DESCR, SYS_NAME, HR_DEVICE, PRT_NAME,
-                              PRT_STATUS, PRT_ERRORS, PAGE_COUNT, SYS_UPTIME],
+                              PRT_STATUS, PRT_ERRORS, PAGE_COUNT, SYS_UPTIME,
+                              SERIAL, SYS_LOCATION, SYS_CONTACT],
                         community, timeout)
     except Exception as e:
         return None, f"no SNMP answer: {e}"
@@ -123,15 +165,49 @@ def read(host, community="public", timeout=3.0):
             "unmeasured": level == -3,
         })
 
+    # The console text is what the panel is showing right now, which saves
+    # walking across the office to find out what it is complaining about.
+    console = " ".join(str(v).strip() for _, v in
+                       snmp.walk(host, CONSOLE, community, timeout)
+                       if str(v).strip())
+
+    cover_state = dict(snmp.walk(host, COVER_STATUS, community, timeout))
+    covers = []
+    for oid, name in snmp.walk(host, COVER_DESC, community, timeout):
+        idx = _index(oid, COVER_DESC)
+        code = cover_state.get(f"{COVER_STATUS}.{idx}")
+        covers.append({"name": name or f"Cover {idx}",
+                       "state": COVER.get(code, "unknown"),
+                       "open": code in (3, 5)})
+
+    sev = dict(snmp.walk(host, ALERT_SEVERITY, community, timeout))
+    alerts = []
+    for oid, text in snmp.walk(host, ALERT_DESC, community, timeout):
+        idx = _index(oid, ALERT_DESC)
+        if not str(text).strip():
+            continue
+        alerts.append({"text": str(text).strip(),
+                       "level": ALERT_LEVEL.get(sev.get(f"{ALERT_SEVERITY}.{idx}"),
+                                                "other")})
+
+    colorants = [str(v) for _, v in snmp.walk(host, COLORANTS, community, timeout)
+                 if str(v).strip()]
+
     # Walk each column once, as with supplies. Walking a leaf OID per tray
     # returns nothing, because the leaf has no children to step into.
     tray_levels = dict(snmp.walk(host, TRAY_LEVEL, community, timeout))
     tray_maxes = dict(snmp.walk(host, TRAY_MAX, community, timeout))
+    tray_caps = dict(snmp.walk(host, TRAY_CAPACITY, community, timeout))
+    tray_units = dict(snmp.walk(host, TRAY_DIM_UNIT, community, timeout))
+    tray_feed = dict(snmp.walk(host, TRAY_DIM_FEED, community, timeout))
+    tray_cross = dict(snmp.walk(host, TRAY_DIM_CROSS, community, timeout))
+    tray_media = dict(snmp.walk(host, TRAY_MEDIA, community, timeout))
     trays = []
     for oid, name in snmp.walk(host, TRAY_DESC, community, timeout):
         idx = _index(oid, TRAY_DESC)
         level = tray_levels.get(f"{TRAY_LEVEL}.{idx}")
         maximum = tray_maxes.get(f"{TRAY_MAX}.{idx}")
+        media = str(tray_media.get(f"{TRAY_MEDIA}.{idx}") or "").strip()
         trays.append({
             "name": name or f"Tray {idx}",
             "level": level,
@@ -139,6 +215,11 @@ def read(host, community="public", timeout=3.0):
             "percent": _pct(level, maximum, "tray"),
             # -3 again: "has paper, not counting sheets"
             "unmeasured": level == -3,
+            "capacity": tray_caps.get(f"{TRAY_CAPACITY}.{idx}"),
+            "paper": paper_name(tray_feed.get(f"{TRAY_DIM_FEED}.{idx}"),
+                                tray_cross.get(f"{TRAY_DIM_CROSS}.{idx}"),
+                                tray_units.get(f"{TRAY_DIM_UNIT}.{idx}")),
+            "media": media if media and media != "-" else None,
         })
 
     return {
@@ -150,6 +231,15 @@ def read(host, community="public", timeout=3.0):
         "errors": decode_errors(base.get(PRT_ERRORS)),
         "pages": base.get(PAGE_COUNT),
         "uptime_s": (base.get(SYS_UPTIME) or 0) // 100,
+        "serial": base.get(SERIAL) or "",
+        # The device often knows where it is; better than asking a human to
+        # retype it into a config file and keep it current.
+        "location": (base.get(SYS_LOCATION) or "").strip(),
+        "contact": (base.get(SYS_CONTACT) or "").strip(),
+        "console": console,
+        "covers": covers,
+        "alerts": alerts,
+        "colorants": colorants,
         "supplies": supplies,
         "trays": trays,
     }, None
@@ -163,6 +253,9 @@ def worst(data, warn=20, bad=10):
     """
     if data.get("errors"):
         return "bad", "; ".join(data["errors"])
+    shut = [c["name"] for c in data.get("covers", []) if c["open"]]
+    if shut:
+        return "bad", "open: " + ", ".join(shut)
     low = [s for s in data.get("supplies", []) if s["percent"] is not None]
     if not low:
         return "ok", "no measurable supplies reported"
