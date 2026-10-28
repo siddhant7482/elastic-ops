@@ -16,6 +16,7 @@ import http.cookiejar
 import json
 import os
 import shutil
+import sqlite3
 import socket
 import sys
 import tempfile
@@ -357,6 +358,31 @@ def main():
     check("closed covers are not a finding",
           prt.worst({"supplies": [{"name": "T", "percent": 90}], "errors": [],
                      "covers": [{"name": "Front Door", "open": False}]})[0] == "ok")
+
+    # A new column on a table that already exists in the wild: CREATE TABLE
+    # IF NOT EXISTS does nothing, so every insert throws and the page quietly
+    # serves yesterday's rows. This is what that bug looked like.
+    old_db = os.path.join(tmp, "old-schema.db")
+    con = sqlite3.connect(old_db)
+    con.execute("CREATE TABLE printers (host TEXT PRIMARY KEY, name TEXT, "
+                "model TEXT, location TEXT, status TEXT, state TEXT, "
+                "detail TEXT, pages INTEGER, payload TEXT, error TEXT, "
+                "ts INTEGER NOT NULL)")
+    con.execute("INSERT INTO printers VALUES('1.2.3.4','old','m','','idle',"
+                "'ok','',1,'{}',NULL,0)")
+    con.commit()
+    con.close()
+    migrated = Store(old_db)
+    cols = {r["name"] for r in migrated.q("PRAGMA table_info(printers)")}
+    check("a missing column is added to an existing table", "serial" in cols, cols)
+    migrated.put_printer("5.6.7.8", "n", "m", "l", "idle", "ok", "d", 7,
+                         {"trays": []}, None, "SERIAL123")
+    check("inserts work after the migration",
+          migrated.one("SELECT serial FROM printers WHERE host='5.6.7.8'"
+                       )["serial"] == "SERIAL123")
+    check("existing rows survive it",
+          migrated.one("SELECT name FROM printers WHERE host='1.2.3.4'")["name"] == "old")
+    migrated.db.close()
 
     code, body, _ = c.get("/api/printers")
     check("/api/printers answers", code == 200 and "printers" in json.loads(body), code)

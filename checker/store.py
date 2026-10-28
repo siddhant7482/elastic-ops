@@ -174,6 +174,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 """
 
 
+# Columns added to tables that already exist in the wild. CREATE TABLE IF NOT
+# EXISTS silently does nothing to a table that is already there, so a new
+# column means every INSERT starts throwing on deployed databases while the
+# page quietly serves yesterday's rows. Add to this list, never edit history.
+MIGRATIONS = [
+    ("printers", "serial", "TEXT"),
+]
+
+
 class Store:
     """Check and job state. Every public method takes the lock itself."""
 
@@ -185,6 +194,17 @@ class Store:
         self.db.executescript(SCHEMA)
         self.db.commit()
         self.lock = threading.Lock()
+        self.migrate()
+
+    def migrate(self):
+        """Add columns that newer code expects to tables created by older."""
+        for table, column, decl in MIGRATIONS:
+            rows = self.q(f"PRAGMA table_info({table})")
+            if not rows:
+                continue                    # table is new; SCHEMA already has it
+            if column not in {r["name"] for r in rows}:
+                self.x(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                print(f"migrated: {table}.{column} added", flush=True)
 
     # -- helpers ---------------------------------------------------------
     def q(self, sql, args=()):

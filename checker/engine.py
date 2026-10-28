@@ -350,7 +350,8 @@ class Engine:
                  "covers": data.get("covers", []),
                  "alerts": data.get("alerts", []),
                  "colorants": data.get("colorants", []),
-                 "contact": data.get("contact", "")},
+                 "contact": data.get("contact", ""),
+                 "uptime_s": data.get("uptime_s", 0)},
                 None, data.get("serial", ""))
 
     def run_check(self, c):
