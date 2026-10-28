@@ -285,6 +285,28 @@ textarea{resize:vertical}
 }
 @media (max-width:620px){.search{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* printer schematics — a technical elevation, not an illustration: hairline
+   strokes, no fills except the live levels, mono callouts on leader lines. */
+.prbody{display:flex;gap:18px;align-items:flex-start;margin-top:14px}
+.prdiag{flex:0 0 55%;min-width:0;border-radius:16px;box-shadow:var(--i-md);padding:10px 6px}
+.prsup{flex:1;min-width:0}
+@media (max-width:1180px){.prbody{flex-direction:column}.prdiag{flex:none;width:100%}}
+svg.schem{width:100%;height:auto;display:block;overflow:visible}
+svg.schem .sl{fill:none;stroke:var(--ink-2);stroke-width:1.3;stroke-linejoin:round}
+svg.schem .sd{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.75}
+svg.schem .ld{fill:none;stroke:var(--ink-3);stroke-width:.9;stroke-dasharray:2.5 2.5;opacity:.8}
+svg.schem .ldd{fill:var(--ink-3)}
+svg.schem text.lb{font-family:var(--mono);font-size:7.5px;letter-spacing:.14em;
+  fill:var(--ink-3);text-transform:uppercase}
+svg.schem text.lv{font-family:var(--mono);font-size:9px;font-weight:600;fill:var(--ink)}
+.suprow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;
+  margin-bottom:11px}
+.suprow b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.suprow .trk{grid-column:1/-1;height:11px;margin-top:-3px}
+.sdot{width:9px;height:9px;border-radius:3px;flex:none}
+.prcard{display:flex;flex-direction:column}
+
 /* additions beyond the design mock: loading, empty states, sign-out */
 .boot{position:fixed;inset:0;z-index:70;background:var(--paper);display:grid;place-items:center;
   font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
@@ -1325,39 +1347,175 @@ function endSilence(id){
     .catch(function(e){toast(e.message)});
 }
 
+/* ---- printer schematics -------------------------------------------------
+   Line elevations with the live levels drawn into them. A technical drawing
+   answers "which cartridge do I buy, and where is it" faster than a column
+   of percentages, and it makes an empty slot obvious. */
+var INK = {cyan:"#0E9BC4", magenta:"#C4379B", yellow:"#C9A21B", black:"#2A3341"};
+
+function inkOf(name){
+  var n=(name||"").toLowerCase();
+  if(n.indexOf("cyan")>-1)return INK.cyan;
+  if(n.indexOf("magenta")>-1)return INK.magenta;
+  if(n.indexOf("yellow")>-1)return INK.yellow;
+  return INK.black;
+}
+function lvlColour(p){
+  return p==null?"var(--ink-3)":(p<=10?"var(--bad)":p<=20?"var(--warn)":"var(--ok)");
+}
+/* A cartridge: outline that fills from the bottom. Hatched when the device
+   refuses to give a number, because an empty bar would read as empty. */
+function cart(x,y,w,h,s){
+  var pct = s && s.percent!=null ? Math.max(0,Math.min(100,s.percent)) : null;
+  var fh  = pct==null ? 0 : (h-4)*pct/100;
+  var col = inkOf(s && s.name);
+  return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="2" class="sl"/>'
+    +(pct==null
+      ? '<rect x="'+(x+2)+'" y="'+(y+2)+'" width="'+(w-4)+'" height="'+(h-4)+'" fill="url(#hatch)"/>'
+      : '<rect x="'+(x+2)+'" y="'+(y+h-2-fh).toFixed(1)+'" width="'+(w-4)+'" height="'+fh.toFixed(1)+'" fill="'+col+'" opacity=".85"/>')
+    +'<rect x="'+(x+w-3)+'" y="'+(y+h*0.3).toFixed(1)+'" width="5" height="'+(h*0.3).toFixed(1)+'" rx="1" class="sl"/>';
+}
+function leader(x1,y1,x2,y2,tx,ty,label,val){
+  return '<path d="M'+x1+' '+y1+'L'+x2+' '+y2+'" class="ld"/>'
+    +'<circle cx="'+x1+'" cy="'+y1+'" r="1.8" class="ldd"/>'
+    +'<text class="lb" x="'+tx+'" y="'+ty+'">'+esc(label)+'</text>'
+    +(val?'<text class="lv" x="'+tx+'" y="'+(ty+11)+'">'+esc(val)+'</text>':'');
+}
+function supplyText(s){
+  if(!s)return "--";
+  return s.unmeasured?"not measured":(s.percent==null?"unknown":s.percent+"%");
+}
+function findSupply(r,words){
+  var list=r.supplies||[];
+  for(var i=0;i<list.length;i++){
+    var n=(list[i].name||"").toLowerCase();
+    for(var j=0;j<words.length;j++) if(n.indexOf(words[j])>-1) return list[i];
+  }
+  return null;
+}
+function defs(){
+  return '<defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse"'
+    +' patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5"'
+    +' stroke="var(--ink-3)" stroke-width="1.1" opacity=".45"/></pattern></defs>';
+}
+
+/* Konica Minolta bizhub — floor-standing colour MFP: feeder, four toners,
+   waste box, four drawers. */
+function schemLarge(r){
+  var toners=["cyan","magenta","yellow","black"].map(function(c){return findSupply(r,[c])});
+  var waste=findSupply(r,["waste"]);
+  var trays=(r.trays||[]).filter(function(t){
+    return (t.name||"").toLowerCase().indexOf("bypass")<0});
+  var s='';
+  s+='<rect x="72" y="14" width="176" height="26" rx="3" class="sl"/>';
+  s+='<path d="M92 14v-6h84v6" class="sl"/>';
+  s+='<path d="M80 40h160" class="sd"/>';
+  s+='<rect x="64" y="44" width="192" height="10" rx="2" class="sl"/>';
+  s+='<path d="M196 60h58a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3h-58z" class="sl"/>';
+  s+='<path d="M203 68h44M203 75h30" class="sd"/>';
+  s+='<rect x="56" y="58" width="208" height="196" rx="4" class="sl"/>';
+  s+='<path d="M70 96h108v30H70" class="sl"/>';
+  s+='<path d="M74 104h96M74 112h72" class="sd"/>';
+  s+='<rect x="68" y="140" width="128" height="44" rx="3" class="sd"/>';
+  for(var i=0;i<4;i++) s+=cart(74+i*31, 146, 24, 32, toners[i]);
+  s+='<rect x="206" y="140" width="46" height="44" rx="3" class="sd"/>';
+  s+='<rect x="212" y="146" width="34" height="32" rx="2" class="sl"/>';
+  var wp = waste && waste.percent!=null ? waste.percent : null;
+  if(wp!=null)
+    s+='<rect x="214" y="'+(178-28*wp/100).toFixed(1)+'" width="30" height="'
+      +(28*wp/100).toFixed(1)+'" fill="var(--ink-3)" opacity=".5"/>';
+  else s+='<rect x="214" y="150" width="30" height="28" fill="url(#hatch)"/>';
+  for(var d=0;d<4;d++){
+    var y=194+d*15, t=trays[d];
+    var full = t && t.percent!=null ? t.percent : (t && t.unmeasured ? 100 : null);
+    s+='<rect x="68" y="'+y+'" width="184" height="12" rx="2" class="sl"/>';
+    s+='<path d="M150 '+(y+6)+'h20" class="sd"/>';
+    if(full!=null)
+      s+='<rect x="71" y="'+(y+3)+'" width="'+(178*full/100).toFixed(1)
+        +'" height="6" fill="var(--ok)" opacity=".30"/>';
+  }
+  s+=leader(130,160,130,130,200,116,"TONER C M Y K",
+      toners.map(function(t){return t&&t.percent!=null?Math.round(t.percent)+"%":"--"}).join("/"));
+  s+=leader(229,162,272,162,258,158,"WASTE", supplyText(waste));
+  s+=leader(252,206,272,206,258,202,"TRAYS", String(trays.length));
+  return '<svg class="schem" viewBox="0 0 320 268" role="img" aria-label="Schematic of '
+    +esc(r.model||"printer")+'">'+defs()+s+'</svg>';
+}
+
+/* Brother compact desktop mono laser MFP: one toner, one drum, one tray. */
+function schemSmall(r){
+  var toner=findSupply(r,["toner"]), drum=findSupply(r,["drum","opc"]);
+  var s='';
+  s+='<rect x="52" y="26" width="216" height="24" rx="3" class="sl"/>';
+  s+='<path d="M60 26v-5h60v5" class="sl"/>';
+  s+='<path d="M196 54h64a3 3 0 0 1 3 3v16a3 3 0 0 1-3 3h-64z" class="sl"/>';
+  s+='<path d="M203 62h44M203 69h26" class="sd"/>';
+  s+='<rect x="52" y="52" width="216" height="128" rx="4" class="sl"/>';
+  s+='<path d="M66 86h116v26H66" class="sl"/>';
+  s+='<path d="M70 94h104M70 102h76" class="sd"/>';
+  s+='<rect x="66" y="124" width="124" height="40" rx="3" class="sd"/>';
+  s+=cart(74, 130, 46, 28, toner);
+  s+='<ellipse cx="152" cy="144" rx="17" ry="17" class="sl"/>';
+  s+='<ellipse cx="152" cy="144" rx="10" ry="10" class="sd"/>';
+  var dp = drum && drum.percent!=null ? drum.percent : null;
+  if(dp!=null){
+    var a=(-90+360*dp/100)*Math.PI/180;
+    var lx=152+13.5*Math.cos(a), ly=144+13.5*Math.sin(a);
+    s+='<path d="M152 130.5A13.5 13.5 0 '+(dp>50?1:0)+' 1 '+lx.toFixed(1)+' '
+      +ly.toFixed(1)+'" fill="none" stroke="'+lvlColour(dp)
+      +'" stroke-width="4" stroke-linecap="round"/>';
+  }
+  var tray=(r.trays||[])[0];
+  var tf = tray && tray.percent!=null ? tray.percent : (tray&&tray.unmeasured?100:null);
+  s+='<rect x="58" y="182" width="204" height="18" rx="3" class="sl"/>';
+  s+='<path d="M146 191h28" class="sd"/>';
+  if(tf!=null)
+    s+='<rect x="62" y="186" width="'+(196*tf/100).toFixed(1)
+      +'" height="10" fill="var(--ok)" opacity=".30"/>';
+  s+=leader(97,144,97,118,196,110,"TONER", supplyText(toner));
+  s+=leader(169,144,272,144,258,140,"DRUM", supplyText(drum));
+  s+=leader(240,191,272,191,258,187,"TRAY",
+      tray?(tray.unmeasured?"has paper":(tray.percent!=null?tray.percent+"%":"--")):"--");
+  return '<svg class="schem" viewBox="0 0 320 232" role="img" aria-label="Schematic of '
+    +esc(r.model||"printer")+'">'+defs()+s+'</svg>';
+}
+
+function schematic(r){
+  var m=(r.model||r.name||"").toLowerCase();
+  return (m.indexOf("bizhub")>-1||m.indexOf("konica")>-1) ? schemLarge(r) : schemSmall(r);
+}
+
 function renderPrinters(){
   var d=S.printers||{printers:[]}, rows=d.printers||[];
+  var unreachable=rows.filter(function(r){return r.error}).length;
   H("prstats").innerHTML=[
     {l:"Printers",v:rows.length,em:"",p:rows.length?"polled every 15 min":"none configured"},
     {l:"Need attention",v:(d.bad||0)+(d.warn||0),em:"",cls:d.bad?"bad":d.warn?"warn":"",
      p:d.bad?"<b>"+d.bad+"</b> critical":(d.warn?"low supplies":"all comfortable")},
-    {l:"Pages this estate",v:rows.reduce(function(a,r){return a+(r.pages||0)},0).toLocaleString(),
+    {l:"Pages this estate",
+     v:rows.reduce(function(a,r){return a+(r.pages||0)},0).toLocaleString(),
      em:"",p:"lifetime counters"},
-    {l:"Unreachable",v:rows.filter(function(r){return r.error}).length,em:"",
-     cls:rows.filter(function(r){return r.error}).length?"warn":"",
-     p:"no SNMP answer"}
+    {l:"Unreachable",v:unreachable,em:"",cls:unreachable?"warn":"",p:"no SNMP answer"}
   ].map(statCard).join("");
 
   H("prlist").innerHTML=rows.length?('<div class="grid g2 mb">'+rows.map(function(r){
     var sup=(r.supplies||[]).map(function(s){
-      var col=s.percent==null?"var(--ink-3)"
-        :(s.percent<=10?"var(--bad)":s.percent<=20?"var(--warn)":"var(--ok)");
-      var lbl=s.unmeasured?"not measured"
-        :(s.percent==null?"unknown":s.percent+"%");
+      var col=lvlColour(s.unmeasured?null:s.percent);
+      var lbl=s.unmeasured?"not measured":(s.percent==null?"unknown":s.percent+"%");
       var w=s.percent==null?0:Math.max(2,s.percent);
-      return '<div style="margin-top:11px">'
-        +'<div style="display:flex;gap:10px;align-items:baseline">'
-        +'<b style="font-size:12.5px;font-weight:600">'+esc(s.name)+'</b>'
-        +'<span class="lab" style="margin-left:auto">'+esc(lbl)+'</span></div>'
-        +'<div class="trk" style="height:11px;margin-top:5px">'
-        +'<i style="flex:'+w+';background:'+col+'"></i>'
+      return '<div class="suprow"><span class="sdot" style="background:'+inkOf(s.name)+'"></span>'
+        +'<b>'+esc(s.name)+'</b><span class="lab">'+esc(lbl)+'</span>'
+        +'<div class="trk"><i style="flex:'+w+';background:'+col+'"></i>'
         +'<i class="e" style="flex:'+(100-w)+'"></i></div></div>';
     }).join("");
-    return '<div class="ch"><div class="chd"><div><h3>'+esc(r.name)+'</h3>'
+    return '<div class="ch prcard"><div class="chd"><div><h3>'+esc(r.name)+'</h3>'
       +'<p>'+esc(r.model||r.host)+(r.location?" · "+esc(r.location):"")+'</p></div>'
       +pill(r.state,r.state==="bad"?"Attention":r.state==="warn"?"Low":"OK")+'</div>'
-      +(r.error?'<div class="mt"><b>Not answering</b>'+esc(r.error)+'</div>':sup)
-      +'<div class="hrow" style="margin-top:14px">'
+      +(r.error
+        ?'<div class="mt"><b>Not answering</b>'+esc(r.error)+'</div>'
+        :'<div class="prbody"><div class="prdiag">'+schematic(r)+'</div>'
+          +'<div class="prsup">'+sup+'</div></div>')
+      +'<div class="hrow" style="margin-top:12px">'
       +'<span class="lab">'+esc(r.status||"")+'</span>'
       +'<span class="lab">'+(r.pages?Number(r.pages).toLocaleString()+" pages":"")+'</span>'
       +'</div></div>';
