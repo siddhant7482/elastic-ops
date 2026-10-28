@@ -282,6 +282,21 @@ textarea{resize:vertical}
   text-transform:uppercase;color:var(--ink-3);display:flex;gap:17px}
 .toast{position:fixed;z-index:60;left:50%;transform:translateX(-50%);bottom:calc(26px + env(safe-area-inset-bottom,0px));
   border-radius:999px;background:var(--forest);color:#EAF6EF;font-size:12.5px;font-weight:600;padding:12px 22px;box-shadow:var(--r-lg)}
+.acct{position:absolute;z-index:26;top:calc(100% - 4px);
+  right:max(16px,env(safe-area-inset-right,0px));width:216px;
+  background:var(--paper);border-radius:18px;box-shadow:var(--r-lg);padding:14px;
+  display:grid;gap:9px}
+.acct .who{display:flex;align-items:center;gap:10px;padding-bottom:11px;
+  border-bottom:1px solid var(--hair)}
+.acct .who b{display:block;font-size:13px;font-weight:700;line-height:1.25}
+.acct .who i{display:block;font-style:normal;font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.acct .btn{width:100%;text-align:center}
+.ib .av{width:100%;height:100%;box-shadow:none;font-size:10.5px;
+  letter-spacing:.02em;color:var(--ink-2)}
+.ib:hover .av{color:var(--ink)}
+.acct form{display:contents}
+.btn.out2{color:var(--bad)}
 .sscrim{position:fixed;inset:0;z-index:24;background:color-mix(in srgb,var(--dk) 55%,transparent)}
 
 @media (max-width:900px){
@@ -519,8 +534,15 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     <div class="search" onclick="openPal()" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openPal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>
       <span>Search the estate</span><kbd>⌘K</kbd></div>
-    <button class="ib" onclick="go('timeline')" aria-label="Recent events"><span id="bicon"></span><span class="pip" id="pip" hidden></span></button>
+    <button class="ib" onclick="toggleAccount()" aria-label="Account" aria-haspopup="true">
+      <span class="av" id="topav">··</span><span class="pip" id="pip" hidden></span></button>
     <button class="ib" onclick="recheck(this)" aria-label="Reload now"><span id="ricon"></span></button>
+    <div class="acct" id="acct" hidden>
+      <div class="who"><span class="av" id="acctav">··</span>
+        <span><b id="acctname">—</b><i id="acctrole">—</i></span></div>
+      <button class="btn" onclick="go('timeline');toggleAccount()">Recent events</button>
+      <form method="post" action="/logout"><button class="btn out2" type="submit">Sign out</button></form>
+    </div>
   </header>
 
   <main class="wrap">
@@ -1028,6 +1050,12 @@ function renderAll(){
   var u=S.me;
   H("mename").textContent=u.display||u.username;
   H("merole").textContent=u.role;
+  var initials=(u.display||u.username).split(/\s+/)
+    .map(function(w){return w[0]}).join("").slice(0,2).toUpperCase();
+  H("topav").textContent=initials;
+  H("acctav").textContent=initials;
+  H("acctname").textContent=u.display||u.username;
+  H("acctrole").textContent=u.role;
   H("meav").textContent=(u.display||u.username).split(/\s+/).map(function(w){return w[0]})
     .join("").slice(0,2).toUpperCase();
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
@@ -1895,6 +1923,24 @@ function go(v){
   try{history.replaceState(null,"","#"+v)}catch(e){}
   sideClose(); window.scrollTo(0,0);
 }
+function toggleAccount(){
+  var a=H("acct");
+  a.hidden=!a.hidden;
+  if(!a.hidden){
+    setTimeout(function(){
+      document.addEventListener("click", closeAccount, {once:true});
+    }, 0);
+  }
+}
+function closeAccount(e){
+  var a=H("acct");
+  if(a.contains(e.target))  {
+    document.addEventListener("click", closeAccount, {once:true});
+    return;
+  }
+  a.hidden=true;
+}
+
 function sideToggle(){
   var s=H("side"),open=s.classList.toggle("open"),sc=H("sscrim");
   if(open&&!sc){sc=document.createElement("div");sc.className="sscrim";sc.id="sscrim";
@@ -1967,7 +2013,6 @@ function toast(m){
 
 /* ============================================================ boot */
 H("ricon").innerHTML=svg("refresh");
-H("bicon").innerHTML=svg("bell");
 var h0=(location.hash||"").replace("#","");
 if(views.indexOf(h0)>-1)current=h0;
 
