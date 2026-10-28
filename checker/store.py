@@ -153,6 +153,16 @@ CREATE TABLE IF NOT EXISTS printers (
   ts         INTEGER NOT NULL
 );
 
+-- One row per poll where something moved. Toner changes slowly, so writing
+-- only on change keeps this small while still carrying a usable trend.
+CREATE TABLE IF NOT EXISTS printer_history (
+  host     TEXT NOT NULL,
+  ts       INTEGER NOT NULL,
+  pages    INTEGER,
+  supplies TEXT                    -- {"Toner (Cyan)": 48.0, ...}
+);
+CREATE INDEX IF NOT EXISTS printer_hist_k ON printer_history(host, ts);
+
 CREATE TABLE IF NOT EXISTS certs (
   name       TEXT PRIMARY KEY,      -- the check this cert belongs to
   host       TEXT, port INTEGER,
@@ -384,12 +394,74 @@ class Store:
         self.x(f"DELETE FROM printers WHERE host NOT IN ({marks})",  # noqa: S608
                tuple(hosts))
 
+    def put_printer_history(self, host, pages, supplies):
+        """Append only when something moved, so a quiet printer costs nothing."""
+        last = self.one("SELECT pages, supplies FROM printer_history WHERE host=? "
+                        "ORDER BY ts DESC LIMIT 1", (host,))
+        blob = json.dumps(supplies, sort_keys=True)
+        if last and last["pages"] == pages and last["supplies"] == blob:
+            return False
+        self.x("INSERT INTO printer_history(host,ts,pages,supplies) VALUES(?,?,?,?)",
+               (host, now(), pages, blob))
+        return True
+
+    def printer_trend(self, host, days=60):
+        """Depletion per supply and pages per day.
+
+        A cartridge change makes the level jump upward, and averaging across
+        that would report a supply filling itself. So each series is cut at
+        the most recent increase and only the run since then is measured.
+        """
+        rows = self.q("SELECT ts, pages, supplies FROM printer_history "
+                      "WHERE host=? AND ts>=? ORDER BY ts",
+                      (host, now() - days * 86400))
+        if len(rows) < 2:
+            return {"supplies": {}, "pages_per_day": None, "samples": len(rows)}
+
+        series = {}
+        for r in rows:
+            try:
+                data = json.loads(r["supplies"] or "{}")
+            except ValueError:
+                continue
+            for name, pct in data.items():
+                if isinstance(pct, int | float):
+                    series.setdefault(name, []).append((r["ts"], float(pct)))
+
+        out = {}
+        for name, points in series.items():
+            for i in range(len(points) - 1, 0, -1):
+                if points[i][1] > points[i - 1][1] + 2:     # refilled
+                    points = points[i:]
+                    break
+            if len(points) < 2:
+                continue
+            span = (points[-1][0] - points[0][0]) / 86400.0
+            drop = points[0][1] - points[-1][1]
+            if span < 1 or drop <= 0:
+                out[name] = {"per_day": 0.0, "days_left": None, "span_days": round(span, 1)}
+                continue
+            per_day = drop / span
+            out[name] = {"per_day": round(per_day, 2),
+                         "days_left": int(points[-1][1] / per_day),
+                         "span_days": round(span, 1)}
+
+        pages = [(r["ts"], r["pages"]) for r in rows if isinstance(r["pages"], int)]
+        ppd = None
+        if len(pages) >= 2:
+            span = (pages[-1][0] - pages[0][0]) / 86400.0
+            printed = pages[-1][1] - pages[0][1]
+            if span >= 1 and printed >= 0:
+                ppd = round(printed / span, 1)
+        return {"supplies": out, "pages_per_day": ppd, "samples": len(rows)}
+
     def prune(self, results_days=120, events_days=400):
         t = now()
         self.x("DELETE FROM results WHERE ts < ?", (t - results_days * 86400,))
         self.x("DELETE FROM events WHERE ts < ?", (t - events_days * 86400,))
         self.x("DELETE FROM pool_history WHERE ts < ?", (t - events_days * 86400,))
         self.x("DELETE FROM hostmetrics WHERE ts < ?", (t - 30 * 86400,))
+        self.x("DELETE FROM printer_history WHERE ts < ?", (t - 400 * 86400,))
         self.x("DELETE FROM sessions WHERE expires_ts < ?", (t,))
 
 

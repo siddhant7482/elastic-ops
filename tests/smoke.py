@@ -384,6 +384,48 @@ def main():
           migrated.one("SELECT name FROM printers WHERE host='1.2.3.4'")["name"] == "old")
     migrated.db.close()
 
+    print("\n  toner runway — a percentage is not actionable, a date is")
+    now_s = now_ts()
+
+    def hist(days_ago, pages, cyan):
+        store.x("INSERT INTO printer_history(host,ts,pages,supplies) VALUES(?,?,?,?)",
+                ("pr", now_s - days_ago * 86400, pages,
+                 json.dumps({"Toner (Cyan)": cyan})))
+
+    for i, ago in enumerate(range(20, -1, -1)):      # 90 -> 50 at 2%/day
+        hist(ago, 1000 + i * 40, 90 - i * 2)
+    tr = store.printer_trend("pr")
+    cy = tr["supplies"]["Toner (Cyan)"]
+    check("depletion rate is measured", cy["per_day"] == 2.0, cy)
+    check("days remaining follow from it", cy["days_left"] == 25, cy)
+    check("pages per day is measured", tr["pages_per_day"] == 40.0, tr["pages_per_day"])
+
+    # A cartridge change makes the level jump up. Averaging across it would
+    # report a supply refilling itself.
+    store.x("DELETE FROM printer_history")
+    for i, ago in enumerate(range(40, 20, -1)):
+        hist(ago, 1000 + i * 40, 90 - i * 2)
+    for i, ago in enumerate(range(20, -1, -1)):
+        hist(ago, 1800 + i * 55, 100 - i * 3)
+    cy2 = store.printer_trend("pr")["supplies"]["Toner (Cyan)"]
+    check("a cartridge change restarts the measurement",
+          cy2["per_day"] == 3.0 and 12 <= cy2["days_left"] <= 14, cy2)
+
+    store.x("DELETE FROM printer_history")
+    for ago in (10, 5, 0):
+        hist(ago, 500, 60.0)
+    check("a flat series forecasts nothing rather than something wrong",
+          store.printer_trend("pr")["supplies"]["Toner (Cyan)"]["days_left"] is None)
+    store.x("DELETE FROM printer_history")
+    hist(0, 1, 50.0)
+    check("one sample is not a trend",
+          store.printer_trend("pr")["supplies"] == {})
+    check("history only appends when something moved",
+          store.put_printer_history("pr2", 10, {"T": 50.0}) is True
+          and store.put_printer_history("pr2", 10, {"T": 50.0}) is False
+          and store.put_printer_history("pr2", 11, {"T": 50.0}) is True)
+    store.x("DELETE FROM printer_history")
+
     code, body, _ = c.get("/api/printers")
     check("/api/printers answers", code == 200 and "printers" in json.loads(body), code)
 

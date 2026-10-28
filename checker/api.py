@@ -328,6 +328,8 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
 
             if path == "/api/printers":
                 rows = store.printers()
+                for r in rows:
+                    r["trend"] = store.printer_trend(r["host"])
                 return self._send(200, {
                     "printers": rows,
                     "bad": sum(1 for r in rows if r["state"] == "bad"),

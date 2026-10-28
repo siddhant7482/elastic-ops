@@ -353,6 +353,10 @@ class Engine:
                  "contact": data.get("contact", ""),
                  "uptime_s": data.get("uptime_s", 0)},
                 None, data.get("serial", ""))
+            self.store.put_printer_history(
+                host, data["pages"],
+                {s["name"]: s["percent"] for s in data["supplies"]
+                 if s["percent"] is not None})
 
     def run_check(self, c):
         ok, ms, detail = probes.run(c, self.cfg["settings"]["timeout"])
