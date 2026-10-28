@@ -421,19 +421,33 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   .prsup{grid-template-columns:1fr}
   .prmeta{gap:8px 18px}
 
-  /* The tray table's five nowrap columns were what forced the page wider
-     than the screen. On a phone each tray becomes its own block instead. */
-  .prtrays{overflow-x:visible;box-shadow:none;margin-top:12px}
-  .prtrays thead{display:none}
+  /* A table on a phone is a stack of labelled blocks, not a sideways
+     scroll. Nowrap columns were also what forced the page wider than the
+     screen in the first place. */
+  .tw,.prtrays{overflow-x:visible;box-shadow:none;border-radius:0}
+  .tw thead,.prtrays thead{display:none}
+  .tw table,.tw tbody,.tw tr,.tw td,
   .prtrays table,.prtrays tbody,.prtrays tr,.prtrays td{display:block;width:auto}
-  .prtrays tr{border-radius:13px;box-shadow:var(--i-sm);padding:11px 13px;
-    margin-bottom:9px}
-  .prtrays td{border:0;padding:1px 0;white-space:normal;font-size:12px;
-    display:flex;justify-content:space-between;gap:12px}
-  .prtrays td:first-child{font-size:13px;margin-bottom:4px}
-  .prtrays td::before{content:attr(data-l);font-family:var(--mono);font-size:9px;
-    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
-  .prtrays td:first-child::before{content:none}
+  .tw tr,.prtrays tr{border-radius:16px;box-shadow:var(--r-sm);
+    padding:13px 15px;margin-bottom:10px}
+  .tw tbody tr:hover td{background:none}
+  .tw td,.prtrays td{border:0;padding:3px 0;white-space:normal;font-size:12.5px;
+    display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+  .tw td::before,.prtrays td::before{content:attr(data-l);font-family:var(--mono);
+    font-size:8.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-3);flex:none;padding-top:2px}
+  /* The first cell names the row, so it is a heading rather than a pair. */
+  .tw td:first-child,.prtrays td:first-child{display:block;font-size:13.5px;
+    font-weight:700;margin-bottom:7px;padding-bottom:7px;
+    border-bottom:1px solid var(--hair)}
+  .tw td:first-child::before,.prtrays td:first-child::before{content:none}
+  .tw td:empty{display:none}
+  .tw td:not([data-l]),.tw td[data-l=""]{justify-content:flex-end;padding-top:8px}
+  .tw .wc{min-width:0}
+  .tw .two{flex-direction:row;justify-content:space-between;width:100%}
+  .tw .bars{height:20px}
+  .tw .note{border-top:0;border-radius:16px;box-shadow:var(--i-sm);
+    padding:13px 15px;margin-top:2px}
 
   .prmeta{display:grid;grid-template-columns:1fr 1fr;gap:11px 16px}
   .prmeta b{font-size:11px}
@@ -997,6 +1011,7 @@ function renderAll(){
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
   renderIncidents(); renderJobs(); renderAlerting(); renderHardware(); renderApps();
   renderSecurity(); renderPrinters(); renderDataAtRest(); buildPalette();
+  labelTables();
   H("boot").hidden=true;
 }
 
@@ -1761,6 +1776,21 @@ function renderCerts(c){
       +'<td>'+pill(st,lbl)+'</td></tr>'}).join("");
   H("certempty").innerHTML=rows.length?"":mt("No certificates checked yet",
     "They are read from every https check, refreshed every six hours.");
+}
+
+/* Give every table cell its column name, so a phone can show each row as a
+   labelled block instead of a sideways scroll. Runs after every render. */
+function labelTables(){
+  Array.prototype.forEach.call(
+    document.querySelectorAll(".tw table, .prtrays table"), function(tbl){
+      var heads = Array.prototype.map.call(
+        tbl.querySelectorAll("thead th"), function(th){ return th.textContent.trim() });
+      Array.prototype.forEach.call(tbl.querySelectorAll("tbody tr"), function(tr){
+        Array.prototype.forEach.call(tr.children, function(td, i){
+          if(heads[i]) td.setAttribute("data-l", heads[i]);
+        });
+      });
+    });
 }
 
 /* ============================================================ actions */
