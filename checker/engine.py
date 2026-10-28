@@ -287,6 +287,8 @@ class Engine:
             names.append(j["name"])
         store.forget_missing(names)
         self.printers = cfg.get("printers", [])
+        self.next_full_printer = 0
+        self.printer_fails = {}
         store.forget_printers([p["host"] for p in self.printers if p.get("host")])
         self.next_printer = 0
 
@@ -327,18 +329,41 @@ class Engine:
         printer takes a few seconds and the walk touches several tables, so
         this runs on its own timer rather than every cycle. printer_interval
         in checks.toml sets it."""
+        # The full read is sixty-odd round trips; the light one is thirteen.
+        # Static facts — serial, trays, covers, storage — do not change
+        # between polls, so they are refreshed hourly and everything that
+        # moves is read every cycle.
+        full = now() >= self.next_full_printer
+        if full:
+            self.next_full_printer = now() + 3600
+
         for p in self.printers:
             host = p.get("host")
             if not host:
                 continue
             data, err = prt.read(host, p.get("community", "public"),
-                                 self.cfg["settings"]["timeout"] + 2)
+                                 self.cfg["settings"]["timeout"] + 2, full=full)
             if err:
-                self.store.put_printer(host, p.get("name") or host, "",
-                                       p.get("location", ""), "unreachable",
-                                       "bad", err, None,
-                                       {"supplies": [], "trays": []}, err)
+                # One missed poll is not a dead printer. Keep the last good
+                # reading and only call it unreachable after three in a row,
+                # the same rule the service checks use.
+                fails = self.printer_fails.get(host, 0) + 1
+                self.printer_fails[host] = fails
+                if fails >= 3:
+                    self.store.put_printer(host, p.get("name") or host, "",
+                                           p.get("location", ""), "unreachable",
+                                           "bad", f"{err} ({fails} polls)", None,
+                                           {"supplies": [], "trays": []}, err)
+                else:
+                    log(f"printer {host}: {err} (attempt {fails} of 3)")
                 continue
+            self.printer_fails[host] = 0
+            prev = self.store.one("SELECT payload FROM printers WHERE host=?",
+                                  (host,)) or {}
+            try:
+                prev = json.loads(prev.get("payload") or "{}")
+            except ValueError:
+                prev = {}
             state, detail = prt.worst(data, p.get("warn_percent", 20),
                                       p.get("bad_percent", 10))
             self.store.put_printer(
@@ -347,13 +372,14 @@ class Engine:
                 # it when someone has bothered to fill that in.
                 p.get("location") or data.get("location", ""),
                 data["status"], state, detail, data["pages"],
-                {"supplies": data["supplies"], "trays": data["trays"],
+                {"supplies": data["supplies"],
+                 "trays": data.get("trays", prev.get("trays", [])),
                  "errors": data["errors"], "descr": data["descr"],
-                 "console": data.get("console", ""),
-                 "covers": data.get("covers", []),
-                 "alerts": data.get("alerts", []),
-                 "colorants": data.get("colorants", []),
-                 "storage": data.get("storage", []),
+                 "console": data.get("console", prev.get("console", "")),
+                 "covers": data.get("covers", prev.get("covers", [])),
+                 "alerts": data.get("alerts", prev.get("alerts", [])),
+                 "colorants": data.get("colorants", prev.get("colorants", [])),
+                 "storage": data.get("storage", prev.get("storage", [])),
                  "contact": data.get("contact", ""),
                  "uptime_s": data.get("uptime_s", 0)},
                 None, data.get("serial", ""))

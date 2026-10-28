@@ -15,6 +15,7 @@ device), v3 (needs crypto), and traps. Read-only by construction.
 
 import random
 import socket
+import time
 import struct
 
 # ASN.1 / BER tags
@@ -129,7 +130,22 @@ def _decode_value(tag, raw):
 # ----------------------------------------------------------------- transport
 
 
-def _request(host, port, community, oids, pdu_type, timeout):
+def _request(host, port, community, oids, pdu_type, timeout, retries=2):
+    """SNMP is UDP, which does not retransmit. A single lost packet on a
+    routed link would otherwise read as "device is dead" — which is exactly
+    how a healthy printer across a router got marked unreachable."""
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            return _request_once(host, port, community, oids, pdu_type, timeout)
+        except (OSError, SnmpError, IndexError, struct.error) as e:
+            last = e
+            if attempt < retries:
+                time.sleep(0.25 * (attempt + 1))
+    raise last if last else SnmpError("no response")
+
+
+def _request_once(host, port, community, oids, pdu_type, timeout):
     rid = random.randint(1, 0x7FFFFFFF)                      # noqa: S311
     binds = b"".join(_tlv(SEQUENCE, encode_oid(o) + _tlv(NULL, b"")) for o in oids)
     pdu = _tlv(pdu_type, _int(rid) + _int(0) + _int(0) + _tlv(SEQUENCE, binds))

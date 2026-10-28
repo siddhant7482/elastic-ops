@@ -140,8 +140,14 @@ def _index(oid, base):
     return oid[len(base) + 1:]
 
 
-def read(host, community="public", timeout=3.0):
-    """Everything worth knowing about one printer. Returns (data, error)."""
+def read(host, community="public", timeout=3.0, full=True):
+    """One printer. Returns (data, error).
+
+    full=False reads only what actually moves — status, supplies, page count
+    — which is about eight round trips instead of sixty. Serial numbers,
+    trays, covers and storage do not change between polls, and asking for
+    them every few minutes is how you flatten an embedded SNMP agent.
+    """
     try:
         base = snmp.get(host, [SYS_DESCR, SYS_NAME, HR_DEVICE, PRT_NAME,
                               PRT_STATUS, PRT_ERRORS, PAGE_COUNT, SYS_UPTIME,
@@ -172,6 +178,23 @@ def read(host, community="public", timeout=3.0):
             # -3 is the device saying "enough, but I will not count it"
             "unmeasured": level == -3,
         })
+
+    if not full:
+        return {
+            "host": host,
+            "name": base.get(PRT_NAME) or base.get(SYS_NAME) or host,
+            "model": base.get(HR_DEVICE) or base.get(SYS_DESCR) or "",
+            "descr": base.get(SYS_DESCR) or "",
+            "status": STATUS.get(base.get(PRT_STATUS), "unknown"),
+            "errors": decode_errors(base.get(PRT_ERRORS)),
+            "pages": base.get(PAGE_COUNT),
+            "uptime_s": (base.get(SYS_UPTIME) or 0) // 100,
+            "serial": base.get(SERIAL) or "",
+            "location": (base.get(SYS_LOCATION) or "").strip(),
+            "contact": (base.get(SYS_CONTACT) or "").strip(),
+            "supplies": supplies,
+            "partial": True,
+        }, None
 
     # The console text is what the panel is showing right now, which saves
     # walking across the office to find out what it is complaining about.
