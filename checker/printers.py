@@ -72,8 +72,8 @@ def paper_name(feed, cross, unit):
     else:
         mm = (feed / 1000, cross / 1000)
     short, long_ = min(mm), max(mm)
-    for name, s, l in PAPER:
-        if abs(short - s) <= 4 and abs(long_ - l) <= 4:
+    for name, want_short, want_long in PAPER:
+        if abs(short - want_short) <= 4 and abs(long_ - want_long) <= 4:
             return name
     return f"{round(short)}x{round(long_)}mm"
 
