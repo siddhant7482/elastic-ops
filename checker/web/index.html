@@ -286,14 +286,21 @@ textarea{resize:vertical}
 @media (max-width:620px){.search{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* printer schematics — a drawing, not an infographic. No text inside the
-   SVG: the supply list sits beside it and callouts only repeated it. Both
-   machines share a viewBox so the two cards scale identically. */
-.prbody{display:flex;gap:20px;align-items:center;margin-top:16px;flex:1}
-.prdiag{flex:0 0 46%;min-width:0;border-radius:16px;box-shadow:var(--i-md);padding:14px 10px}
-.prsup{flex:1;min-width:0}
-@media (max-width:1240px){.prbody{flex-direction:column;align-items:stretch}
+   SVG: the supply list sits beside it and callouts only repeated it.
+
+   One printer per row, and the drawing gets a FIXED box rather than a
+   percentage of the card. Sized as a percentage, a machine with five
+   supplies got a taller card and therefore a smaller drawing than one with
+   two — the same object rendered at two sizes on one page. */
+.prstack{display:grid;gap:18px}
+.prbody{display:flex;gap:28px;align-items:center;margin-top:16px;flex:1}
+.prdiag{flex:0 0 288px;height:228px;display:grid;place-items:center;
+  border-radius:16px;box-shadow:var(--i-md);padding:12px}
+.prsup{flex:1;min-width:0;display:grid;align-content:center;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 28px}
+@media (max-width:820px){.prbody{flex-direction:column;align-items:stretch}
   .prdiag{flex:none;width:100%}}
-svg.schem{width:100%;height:auto;display:block}
+svg.schem{height:100%;width:auto;max-width:100%;display:block}
 svg.schem .sl{fill:none;stroke:var(--ink-2);stroke-width:1.5;stroke-linejoin:round}
 svg.schem .sd{fill:none;stroke:var(--ink-3);stroke-width:1.1;opacity:.7}
 svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-dasharray:3 4}
@@ -1485,7 +1492,7 @@ function renderPrinters(){
     {l:"Unreachable",v:unreachable,em:"",cls:unreachable?"warn":"",p:"no SNMP answer"}
   ].map(statCard).join("");
 
-  H("prlist").innerHTML=rows.length?('<div class="grid g2 mb">'+rows.map(function(r){
+  H("prlist").innerHTML=rows.length?('<div class="prstack mb">'+rows.map(function(r){
     var sup=(r.supplies||[]).map(function(s){
       var col=lvlColour(s.unmeasured?null:s.percent);
       var lbl=s.unmeasured?"not measured":(s.percent==null?"unknown":s.percent+"%");
