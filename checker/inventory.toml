@@ -454,3 +454,19 @@ state = "bad"
 #   unmonitored_ok = ["9910", "pepper/9911"]
 
 unmonitored_ok = []
+
+
+# ---------------------------------------------------------------- device data
+#
+# Multifunction printers keep scanned and printed documents on internal
+# storage. The portal detects the media over SNMP; whether it is encrypted and
+# what happens to it on disposal are human answers, recorded here.
+#
+# Match on the device address. state: ok | warn | bad
+
+[[device_data]]
+address  = "192.168.42.177"
+encrypted = "Unknown"
+wipe      = "Not documented"
+note      = "250 GB HDD. Printed 220k pages; also holds scans and the address book."
+state     = "warn"

@@ -350,6 +350,7 @@ class Engine:
                  "covers": data.get("covers", []),
                  "alerts": data.get("alerts", []),
                  "colorants": data.get("colorants", []),
+                 "storage": data.get("storage", []),
                  "contact": data.get("contact", ""),
                  "uptime_s": data.get("uptime_s", 0)},
                 None, data.get("serial", ""))

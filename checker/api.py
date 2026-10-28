@@ -334,6 +334,7 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     "printers": rows,
                     "bad": sum(1 for r in rows if r["state"] == "bad"),
                     "warn": sum(1 for r in rows if r["state"] == "warn"),
+                    "device_data": inventory.get("device_data", []),
                 })
 
             if path == "/api/certs":

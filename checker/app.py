@@ -15,6 +15,7 @@ Elastic Ops — entry point.
 
     python3 app.py checks.toml --gmail-auth        get a Gmail refresh token
     python3 app.py checks.toml --mail-test         send one test email
+    python3 app.py checks.toml --counters <ip>     dump a printer's raw counters
 
 Python 3.11+, standard library only. Nothing to pip install, which is the point:
 the thing that watches the estate should not itself be a dependency problem.
@@ -80,6 +81,39 @@ def matrix_cli(cfg, args):
         for rid, name in rooms:
             print(f"  {rid:<48} {name}")
         print("\nPut the chosen id in checks.toml as matrix_room")
+        return True
+
+    if "--counters" in args:
+        import snmp
+        host = args[args.index("--counters") + 1]
+        print(f"\nRaw counters from {host}. Compare these against the device's "
+              "own\nmeter page (bizhub: Utility > Meter Count) and tell me which "
+              "line\nmatches colour and which matches black.\n")
+        total = snmp.get(host, ["1.3.6.1.2.1.43.10.2.1.4.1.1"]).get(
+            "1.3.6.1.2.1.43.10.2.1.4.1.1")
+        print(f"  standard lifetime total         {total}")
+        print("\n  vendor scalars (Konica 18334.1.1.1.5.7.2.1.N.0):")
+        for n in range(1, 12):
+            oid = f"1.3.6.1.4.1.18334.1.1.1.5.7.2.1.{n}.0"
+            v = snmp.get(host, [oid]).get(oid)
+            if v not in (None, -1):
+                print(f"    .{n:<3} {v}")
+        print("\n  vendor table, value column (5.7.2.2.1.5.row.sub):")
+        rows = snmp.walk(host, "1.3.6.1.4.1.18334.1.1.1.5.7.2.2.1.5", limit=40)
+        kinds = dict(snmp.walk(host, "1.3.6.1.4.1.18334.1.1.1.5.7.2.2.1.3", limit=40))
+        by_sub = {}
+        for oid, val in rows:
+            idx = oid.rsplit(".", 2)
+            row, sub = idx[-2], idx[-1]
+            if isinstance(val, int) and val >= 0:
+                by_sub.setdefault(sub, 0)
+                by_sub[sub] += val
+                k = kinds.get("1.3.6.1.4.1.18334.1.1.1.5.7.2.2.1.3." + row + "." + sub)
+                print(f"    row {row} sub {sub}  type={k}  {val}")
+        for sub, tot in sorted(by_sub.items()):
+            print(f"    -> sub {sub} totals {tot}")
+        print("\n  If one of those sub-totals is the colour count on the panel,"
+              "\n  that settles it and I will wire it in.\n")
         return True
 
     if "--gmail-auth" in args:

@@ -581,6 +581,15 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
         twelve-hour certificates and renews them itself — a "warn under 14 days" rule would
         alert about those twice a day forever.</div></div>
 
+    <div class="sh"><h2>Device data at rest</h2><span class="lab" id="datcount"></span></div>
+    <div class="tw mb"><table><thead><tr><th>Device</th><th>Media</th><th>Size</th><th>Encrypted</th><th>On disposal</th><th>State</th></tr></thead><tbody id="datrows"></tbody></table>
+      <div id="datempty"></div>
+      <div class="note">Multifunction printers keep scanned and printed documents on internal
+        storage. The media is detected over SNMP; whether it is encrypted, and what happens to
+        it when the device is returned or disposed of, are human answers recorded in
+        <span class="num">inventory.toml</span>. A leased MFP going back with its disk intact
+        takes everything ever copied on it along.</div></div>
+
     <div class="sh"><h2>Credential age</h2></div>
     <div class="tw"><table><thead><tr><th>Credential</th><th>Used by</th><th>Age</th><th>Stored</th><th>State</th></tr></thead><tbody id="credrows"></tbody></table>
       <div class="note">The portal holds no secrets — only where they live and how old they are, with a link into Vaultwarden. The point is the age column.</div></div>
@@ -873,7 +882,7 @@ function renderAll(){
     .join("").slice(0,2).toUpperCase();
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
   renderIncidents(); renderJobs(); renderAlerting(); renderHardware(); renderApps();
-  renderSecurity(); renderPrinters(); buildPalette();
+  renderSecurity(); renderPrinters(); renderDataAtRest(); buildPalette();
   H("boot").hidden=true;
 }
 
@@ -1331,7 +1340,12 @@ function renderSecurity(){
      cls:cr2.expired?"bad":cr2.renew_soon?"warn":"",
      p:cr2.expired?"<b>expired</b>":cr2.renew_soon?"due to renew":
        ((cr2.certs||[]).length?plural((cr2.certs||[]).length,"checked")+", all healthy":"none checked yet")},
-    {l:"Accounts on this portal",v:"—",em:"",p:"managed from the host"}
+    {l:"Devices holding data",
+     v:((S.printers&&S.printers.printers)||[]).filter(function(r){
+        return (r.storage||[]).some(function(s){return s.persistent})}).length,
+     em:"",cls:((S.printers&&S.printers.device_data)||[]).some(function(x){
+        return x.state!=="ok"})?"warn":"",
+     p:"printer disks and flash"}
   ].map(statCard).join("");
   H("patchrows").innerHTML=pa.map(function(p){
     return '<tr><td><b>'+esc(p.host)+'</b></td><td class="num">'+esc(p.pending)+'</td>'
@@ -1586,6 +1600,31 @@ function renderPrinters(){
       +'<td>'+pill(r.state,r.detail?esc(r.detail).slice(0,40):r.state)+'</td></tr>'}).join("");
   H("prempty").innerHTML=rows.length?"":mt("No printers configured",
     "Add [[printers]] entries to checks.toml with the device address.");
+}
+
+function renderDataAtRest(){
+  var d=S.printers||{}, rows=d.printers||[], notes={};
+  (d.device_data||[]).forEach(function(x){notes[x.address]=x});
+  var out=[];
+  rows.forEach(function(r){
+    (r.storage||[]).filter(function(s){return s.persistent}).forEach(function(s){
+      var n=notes[r.host]||{};
+      out.push({device:r.name, host:r.host, media:s.name, bytes:s.bytes,
+                encrypted:n.encrypted||"Unknown", wipe:n.wipe||"Not documented",
+                state:n.state||"warn", note:n.note||""});
+    });
+  });
+  H("datcount").textContent=out.length?plural(out.length,"device holding data"):"";
+  H("datrows").innerHTML=out.map(function(x){
+    return '<tr><td><div class="two"><b>'+esc(x.device)+'</b><span>'+esc(x.host)+'</span></div></td>'
+      +'<td class="num">'+esc(x.media)+'</td>'
+      +'<td class="num dim">'+(x.bytes?tb(x.bytes):"—")+'</td>'
+      +'<td class="dim">'+esc(x.encrypted)+'</td>'
+      +'<td class="dim wc">'+esc(x.wipe)+'</td>'
+      +'<td>'+pill(x.state,x.state==="ok"?"Known":x.state==="bad"?"Exposed":"Unverified")+'</td></tr>';
+  }).join("");
+  H("datempty").innerHTML=out.length?"":mt("No persistent device storage found",
+    "Nothing polled reports a disk or flash that survives a power cycle.");
 }
 
 function renderCerts(c){

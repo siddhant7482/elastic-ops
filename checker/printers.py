@@ -44,6 +44,9 @@ TRAY_DIM_UNIT = "1.3.6.1.2.1.43.8.2.1.3"
 TRAY_DIM_FEED = "1.3.6.1.2.1.43.8.2.1.4"
 TRAY_DIM_CROSS = "1.3.6.1.2.1.43.8.2.1.5"
 TRAY_MEDIA = "1.3.6.1.2.1.43.8.2.1.12"
+STORAGE_DESCR = "1.3.6.1.2.1.25.2.3.1.3"
+STORAGE_UNITS = "1.3.6.1.2.1.25.2.3.1.4"
+STORAGE_SIZE = "1.3.6.1.2.1.25.2.3.1.5"
 TRAY_DESC = "1.3.6.1.2.1.43.8.2.1.18"
 TRAY_LEVEL = "1.3.6.1.2.1.43.8.2.1.10"
 TRAY_MAX = "1.3.6.1.2.1.43.8.2.1.9"
@@ -97,6 +100,11 @@ ERROR_BITS = [
 ]
 
 # Consumables that fill up rather than run down: a HIGH reading is the problem.
+# Media that keeps data when the power goes off. An MFP with one of these
+# has been retaining scanned and printed documents, which is a question at
+# lease-end and on disposal, not a monitoring one.
+NON_VOLATILE = ("hdd", "hard", "ssd", "emmc", "flash", "disk", "nand")
+
 WASTE = {"waste toner", "waste ink", "waste wax", "waste water",
          "waste transfer unit", "waste paper"}
 
@@ -193,6 +201,23 @@ def read(host, community="public", timeout=3.0):
     colorants = [str(v) for _, v in snmp.walk(host, COLORANTS, community, timeout)
                  if str(v).strip()]
 
+    units = dict(snmp.walk(host, STORAGE_UNITS, community, timeout))
+    sizes = dict(snmp.walk(host, STORAGE_SIZE, community, timeout))
+    storage = []
+    for oid, descr in snmp.walk(host, STORAGE_DESCR, community, timeout):
+        name = str(descr).strip()
+        if not name:
+            continue
+        idx = _index(oid, STORAGE_DESCR)
+        unit = units.get(f"{STORAGE_UNITS}.{idx}")
+        size = sizes.get(f"{STORAGE_SIZE}.{idx}")
+        total = (size * unit) if isinstance(size, int) and isinstance(unit, int) else None
+        storage.append({
+            "name": name,
+            "bytes": total if total and total > 0 else None,
+            "persistent": any(k in name.lower() for k in NON_VOLATILE),
+        })
+
     # Walk each column once, as with supplies. Walking a leaf OID per tray
     # returns nothing, because the leaf has no children to step into.
     tray_levels = dict(snmp.walk(host, TRAY_LEVEL, community, timeout))
@@ -240,6 +265,7 @@ def read(host, community="public", timeout=3.0):
         "covers": covers,
         "alerts": alerts,
         "colorants": colorants,
+        "storage": storage,
         "supplies": supplies,
         "trays": trays,
     }, None
