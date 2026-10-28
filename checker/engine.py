@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 import mailer
 import matrix as matrixmod
+import printers as prt
 import probes
 import whatsapp as wamod
 from store import now
@@ -284,6 +285,9 @@ class Engine:
                            f"every {j['grace_hours']}h", j["severity"])
             names.append(j["name"])
         store.forget_missing(names)
+        self.printers = cfg.get("printers", [])
+        store.forget_printers([p["host"] for p in self.printers if p.get("host")])
+        self.next_printer = 0
 
     def transition(self, name, new_status, detail, severity):
         st = self.store.get(name) or {}
@@ -316,6 +320,30 @@ class Engine:
             return
         info, detail = probes.cert_info(host, port, self.cfg["settings"]["timeout"])
         self.store.put_cert(c["name"], host, port, info, detail)
+
+    def poll_printers(self):
+        """Toner does not move quickly, and SNMP on a sleeping printer can be
+        slow, so this runs every fifteen minutes rather than every cycle."""
+        for p in self.printers:
+            host = p.get("host")
+            if not host:
+                continue
+            data, err = prt.read(host, p.get("community", "public"),
+                                 self.cfg["settings"]["timeout"] + 2)
+            if err:
+                self.store.put_printer(host, p.get("name") or host, "",
+                                       p.get("location", ""), "unreachable",
+                                       "bad", err, None,
+                                       {"supplies": [], "trays": []}, err)
+                continue
+            state, detail = prt.worst(data, p.get("warn_percent", 20),
+                                      p.get("bad_percent", 10))
+            self.store.put_printer(
+                host, p.get("name") or data["name"], data["model"],
+                p.get("location", ""), data["status"], state, detail,
+                data["pages"],
+                {"supplies": data["supplies"], "trays": data["trays"],
+                 "errors": data["errors"], "descr": data["descr"]}, None)
 
     def run_check(self, c):
         ok, ms, detail = probes.run(c, self.cfg["settings"]["timeout"])
@@ -385,6 +413,12 @@ class Engine:
                     except Exception as e:
                         log(f"cert check '{c['name']}' raised: {e}")
             self.sweep_jobs()
+            if t >= self.next_printer:
+                self.next_printer = t + 15 * 60
+                try:
+                    self.poll_printers()
+                except Exception as e:
+                    log(f"printer poll raised: {e}")
             if t - last_deadman >= 60:
                 self.deadman()
                 last_deadman = t

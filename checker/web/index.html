@@ -504,6 +504,19 @@ textarea{resize:vertical}
     <div class="tw"><table><thead><tr><th>Host</th><th>Bay</th><th>Drive</th><th>Array</th><th>State</th></tr></thead><tbody id="drvrows"></tbody></table></div>
   </section>
 
+  <!-- PRINTERS -->
+  <section id="v-printers" hidden>
+    <div class="grid g4 mb" id="prstats"></div>
+    <div id="prlist"></div>
+    <div class="tw"><table><thead><tr><th>Printer</th><th>Model</th><th>Address</th><th>Pages</th><th>Status</th><th>State</th></tr></thead><tbody id="prrows"></tbody></table>
+      <div id="prempty"></div>
+      <div class="note">Read over SNMP using the Printer MIB, which Brother, Canon and Konica
+        Minolta all implement, so there is one reader rather than three integrations. Polled
+        every fifteen minutes. A supply showing <span class="num">not measured</span> is the
+        device saying it knows only "enough" or "low" — Brother mono lasers report toner that
+        way, and a percentage for them does not exist to be shown.</div></div>
+  </section>
+
   <!-- APPLICATIONS -->
   <section id="v-apps" hidden>
     <div id="appgroups"></div>
@@ -556,6 +569,7 @@ var ICON={
  doc:'<path d="M14 2.5H7.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7z"/><path d="M14 2.5V7h4.5"/><path d="M9 13h6M9 17h4"/>',
  globe:'<circle cx="12" cy="12" r="9"/><path d="M3.2 12h17.6"/><path d="M12 3c2.5 2.7 3.7 6 3.7 9s-1.2 6.3-3.7 9c-2.5-2.7-3.7-6-3.7-9s1.2-6.3 3.7-9z"/>',
  eye:'<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/>',
+ printer:'<rect x="6" y="3" width="12" height="6" rx="1"/><path d="M6 14H4a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2"/><rect x="6" y="13" width="12" height="8" rx="1"/><path d="M18.5 11h.01"/>',
  refresh:'<path d="M20.5 11.5a8.5 8.5 0 1 1-2.6-5.6"/><path d="M20.8 3.6v5h-5"/>'
 };
 function svg(k){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(ICON[k]||ICON.box)+'</svg>'}
@@ -790,12 +804,12 @@ function load(){
   return Promise.all([
     api("/api/me"),api("/api/status"),api("/api/inventory"),api("/api/incidents"),
     api("/api/followups"),api("/api/changes"),api("/api/backups"),api("/api/capacity"),
-    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs"),api("/api/silences")
+    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs"),api("/api/silences"),api("/api/printers")
   ]).then(function(r){
     S.me=r[0];S.status=r[1];S.inv=r[2];S.incidents=r[3].incidents;S.followups=r[4].followups;
     S.changes=r[5].changes;S.backups=r[6].backups;S.drills=r[6].drills;S.pools=r[7].pools;
     S.hosts=r[8].hosts;S.hostinv=r[8].inventory;S.drives=r[8].drives;S.events=r[9].events;
-    S.cov=r[10];S.certs=r[11];S.sil=r[12];
+    S.cov=r[10];S.certs=r[11];S.sil=r[12];S.printers=r[13];
     renderAll();
   });
 }
@@ -813,7 +827,7 @@ function renderAll(){
     .join("").slice(0,2).toUpperCase();
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
   renderIncidents(); renderJobs(); renderAlerting(); renderHardware(); renderApps();
-  renderSecurity(); buildPalette();
+  renderSecurity(); renderPrinters(); buildPalette();
   H("boot").hidden=true;
 }
 
@@ -1311,6 +1325,54 @@ function endSilence(id){
     .catch(function(e){toast(e.message)});
 }
 
+function renderPrinters(){
+  var d=S.printers||{printers:[]}, rows=d.printers||[];
+  H("prstats").innerHTML=[
+    {l:"Printers",v:rows.length,em:"",p:rows.length?"polled every 15 min":"none configured"},
+    {l:"Need attention",v:(d.bad||0)+(d.warn||0),em:"",cls:d.bad?"bad":d.warn?"warn":"",
+     p:d.bad?"<b>"+d.bad+"</b> critical":(d.warn?"low supplies":"all comfortable")},
+    {l:"Pages this estate",v:rows.reduce(function(a,r){return a+(r.pages||0)},0).toLocaleString(),
+     em:"",p:"lifetime counters"},
+    {l:"Unreachable",v:rows.filter(function(r){return r.error}).length,em:"",
+     cls:rows.filter(function(r){return r.error}).length?"warn":"",
+     p:"no SNMP answer"}
+  ].map(statCard).join("");
+
+  H("prlist").innerHTML=rows.length?('<div class="grid g2 mb">'+rows.map(function(r){
+    var sup=(r.supplies||[]).map(function(s){
+      var col=s.percent==null?"var(--ink-3)"
+        :(s.percent<=10?"var(--bad)":s.percent<=20?"var(--warn)":"var(--ok)");
+      var lbl=s.unmeasured?"not measured"
+        :(s.percent==null?"unknown":s.percent+"%");
+      var w=s.percent==null?0:Math.max(2,s.percent);
+      return '<div style="margin-top:11px">'
+        +'<div style="display:flex;gap:10px;align-items:baseline">'
+        +'<b style="font-size:12.5px;font-weight:600">'+esc(s.name)+'</b>'
+        +'<span class="lab" style="margin-left:auto">'+esc(lbl)+'</span></div>'
+        +'<div class="trk" style="height:11px;margin-top:5px">'
+        +'<i style="flex:'+w+';background:'+col+'"></i>'
+        +'<i class="e" style="flex:'+(100-w)+'"></i></div></div>';
+    }).join("");
+    return '<div class="ch"><div class="chd"><div><h3>'+esc(r.name)+'</h3>'
+      +'<p>'+esc(r.model||r.host)+(r.location?" · "+esc(r.location):"")+'</p></div>'
+      +pill(r.state,r.state==="bad"?"Attention":r.state==="warn"?"Low":"OK")+'</div>'
+      +(r.error?'<div class="mt"><b>Not answering</b>'+esc(r.error)+'</div>':sup)
+      +'<div class="hrow" style="margin-top:14px">'
+      +'<span class="lab">'+esc(r.status||"")+'</span>'
+      +'<span class="lab">'+(r.pages?Number(r.pages).toLocaleString()+" pages":"")+'</span>'
+      +'</div></div>';
+  }).join("")+'</div>'):"";
+
+  H("prrows").innerHTML=rows.map(function(r){
+    return '<tr><td><b>'+esc(r.name)+'</b></td><td class="dim">'+esc(r.model||"")+'</td>'
+      +'<td class="num dim">'+esc(r.host)+'</td>'
+      +'<td class="num">'+(r.pages?Number(r.pages).toLocaleString():"—")+'</td>'
+      +'<td class="dim">'+esc(r.status||"")+'</td>'
+      +'<td>'+pill(r.state,r.detail?esc(r.detail).slice(0,40):r.state)+'</td></tr>'}).join("");
+  H("prempty").innerHTML=rows.length?"":mt("No printers configured",
+    "Add [[printers]] entries to checks.toml with the device address.");
+}
+
 function renderCerts(c){
   var rows=c.certs||[];
   H("certcount").textContent=rows.length?plural(rows.length,"endpoint"):"";
@@ -1374,7 +1436,7 @@ var NAV=[
  ["Monitoring",[["overview","Overview","home"],["services","Services","pulse"],["timeline","Timeline","clock"]]],
  ["Reliability",[["backups","Backups","disk"],["incidents","Incidents","warn"],
                  ["changes","Jobs &amp; changes","repeat"],["alerting","Alerting","bell"]]],
- ["Estate",[["hardware","Hardware","chip"],["apps","Applications","grid"],["security","Security","shield"]]]
+ ["Estate",[["hardware","Hardware","chip"],["printers","Printers","printer"],["apps","Applications","grid"],["security","Security","shield"]]]
 ];
 var views=[],titles={},current="overview";
 NAV.forEach(function(g){g[1].forEach(function(n){views.push(n[0]);titles[n[0]]=n[1]})});
@@ -1387,6 +1449,7 @@ function counts(){
     incidents:(S.incidents||[]).filter(function(i){return i.status==="open"}).length,
     changes:sm.jobs_late||0,
     hardware:(S.drives||[]).filter(function(d){return d.state!=="ok"}).length,
+    printers:((S.printers&&S.printers.bad)||0)+((S.printers&&S.printers.warn)||0),
     security:(S.inv&&S.inv.credentials||[]).filter(function(c){return c.state==="bad"}).length
   };
 }

@@ -326,6 +326,14 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     "past": store.silences(include_past=True),
                 })
 
+            if path == "/api/printers":
+                rows = store.printers()
+                return self._send(200, {
+                    "printers": rows,
+                    "bad": sum(1 for r in rows if r["state"] == "bad"),
+                    "warn": sum(1 for r in rows if r["state"] == "warn"),
+                })
+
             if path == "/api/certs":
                 rows = store.certs()
                 return self._send(200, {

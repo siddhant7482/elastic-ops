@@ -302,3 +302,38 @@ token = "sql-dumps"
 grace_hours = 26
 severity = "notify"
 
+
+
+# ---------------------------------------------------------------- printers
+#
+# Read over SNMP using the Printer MIB (RFC 3805), which Brother, Canon and
+# Konica Minolta all implement — one reader, no per-vendor integrations.
+# Polled every 15 minutes: toner does not move quickly and a sleeping printer
+# can be slow to answer.
+#
+# These live on the legacy 192.168.42.0/24 network, not the 10.10.1.0/24 LAN.
+# The portal host must be able to reach that subnet.
+#
+# community defaults to "public". Set warn_percent / bad_percent per printer
+# if one of them burns a colour much faster than the rest.
+
+[[printers]]
+host     = "192.168.42.161"
+name     = "Brother DCP-L2660DW"
+location = ""                    # fill in — "which printer is that?" at 9am
+community = "public"
+
+[[printers]]
+host     = "192.168.42.177"
+name     = "Konica Minolta bizhub C368"
+location = ""
+community = "public"
+
+# Answers on 9100/631/515 but not SNMP with "public". Either SNMP is off, or
+# it uses a different community, or it only speaks v1. Check the printer's
+# web UI, set the community here, and uncomment.
+# [[printers]]
+# host     = "192.168.42.203"
+# name     = "Canon"
+# location = ""
+# community = "public"

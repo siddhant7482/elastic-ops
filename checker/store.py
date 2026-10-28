@@ -143,6 +143,16 @@ CREATE TABLE IF NOT EXISTS silences (
 );
 CREATE INDEX IF NOT EXISTS silences_target ON silences(target, until_ts);
 
+CREATE TABLE IF NOT EXISTS printers (
+  host       TEXT PRIMARY KEY,
+  name       TEXT, model TEXT, location TEXT,
+  status     TEXT, state TEXT, detail TEXT,
+  pages      INTEGER,
+  payload    TEXT,                 -- supplies and trays, as json
+  error      TEXT,
+  ts         INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS certs (
   name       TEXT PRIMARY KEY,      -- the check this cert belongs to
   host       TEXT, port INTEGER,
@@ -322,6 +332,37 @@ class Store:
             "SELECT * FROM silences WHERE ended_ts IS NULL AND until_ts > ? "
             "AND target IN (?, '*') ORDER BY until_ts DESC LIMIT 1", (now(), name))
         return r
+
+    # -- printers ---------------------------------------------------------
+    def printers(self):
+        rows = self.q("SELECT * FROM printers ORDER BY name")
+        for r in rows:
+            try:
+                r.update(json.loads(r.pop("payload") or "{}"))
+            except ValueError:
+                r["supplies"], r["trays"] = [], []
+        return rows
+
+    def put_printer(self, host, name, model, location, status, state, detail,
+                    pages, payload, error):
+        self.x(
+            "INSERT INTO printers(host,name,model,location,status,state,detail,"
+            "pages,payload,error,ts) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(host) DO UPDATE SET name=excluded.name, "
+            "model=excluded.model, location=excluded.location, "
+            "status=excluded.status, state=excluded.state, detail=excluded.detail, "
+            "pages=excluded.pages, payload=excluded.payload, error=excluded.error, "
+            "ts=excluded.ts",
+            (host, name, model, location, status, state, detail, pages,
+             json.dumps(payload), error, now()))
+
+    def forget_printers(self, hosts):
+        if not hosts:
+            self.x("DELETE FROM printers")
+            return
+        marks = ",".join("?" * len(hosts))
+        self.x(f"DELETE FROM printers WHERE host NOT IN ({marks})",  # noqa: S608
+               tuple(hosts))
 
     def prune(self, results_days=120, events_days=400):
         t = now()

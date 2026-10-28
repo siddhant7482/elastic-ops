@@ -294,6 +294,50 @@ def main():
     check("an unreachable host says so rather than hanging",
           ok is False and detail, detail)
 
+    print("\nprinters — SNMP codec and the Printer MIB")
+    import printers as prt
+    import snmp as snmp_mod
+
+    # Known vector: 1.3.6.1.2.1.1.1.0 encodes to 2b 06 01 02 01 01 01 00,
+    # the first two arcs collapsing to 1*40+3 = 0x2b.
+    enc = snmp_mod.encode_oid("1.3.6.1.2.1.1.1.0")
+    check("OID encodes to the documented bytes",
+          enc[2:].hex() == "2b06010201010100", enc.hex())
+    check("OID round trips", snmp_mod.decode_oid(enc[2:]) == "1.3.6.1.2.1.1.1.0")
+    big = "1.3.6.1.4.1.2435.2.3.9.1"          # Brother's enterprise arc
+    check("multi-byte arcs survive the trip",
+          snmp_mod.decode_oid(snmp_mod.encode_oid(big)[2:]) == big)
+    check("long lengths encode in the long form",
+          snmp_mod._len(300) == bytes([0x82, 0x01, 0x2C]), snmp_mod._len(300).hex())
+    check("an unreachable agent returns None rather than raising",
+          snmp_mod.alive("203.0.113.9", timeout=0.4) is None)
+
+    # -3 means "enough, but I will not count it". Showing 0% would be a lie.
+    check("an unmeasured supply has no percentage",
+          prt._pct(-3, -2, "toner") is None)
+    check("a normal supply is a percentage", prt._pct(48, 100, "toner") == 48.0)
+    check("a waste container inverts — 90% full reads as 10% left",
+          prt._pct(90, 100, "waste toner") == 10.0)
+    check("a zero maximum yields no percentage", prt._pct(5, 0, "toner") is None)
+
+    bits = prt.decode_errors(b"\x24\x00")      # bits 2 and 5
+    check("error bitfield decodes to names",
+          "low toner" in bits and "jammed" in bits, bits)
+    check("an empty error field means no errors", prt.decode_errors("") == [])
+
+    low = {"supplies": [{"name": "Toner (Cyan)", "percent": 8.0},
+                        {"name": "Toner (Black)", "percent": 90.0}], "errors": []}
+    check("the most depleted supply decides the state",
+          prt.worst(low)[0] == "bad", prt.worst(low))
+    unmeasured = {"supplies": [{"name": "Black Toner", "percent": None}], "errors": []}
+    check("a printer that only reports ok/low is not permanently amber",
+          prt.worst(unmeasured)[0] == "ok", prt.worst(unmeasured))
+    check("a device error outranks supply levels",
+          prt.worst({"supplies": [], "errors": ["jammed"]})[0] == "bad")
+
+    code, body, _ = c.get("/api/printers")
+    check("/api/printers answers", code == 200 and "printers" in json.loads(body), code)
+
     print("\n.env is read by the CLI too, not only by systemd")
     envdir = os.path.join(tmp, "envtest")
     os.makedirs(os.path.join(envdir, "checker"), exist_ok=True)
