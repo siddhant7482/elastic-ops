@@ -155,7 +155,7 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
 
 /* charts */
 .ch{border-radius:24px;box-shadow:var(--r-lg);padding:20px 22px 16px}
-.chd{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.chd{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;min-width:0}
 .chd h3{font-size:14.5px;font-weight:800;letter-spacing:-.025em}
 .chd p{margin:3px 0 0;font-size:11.5px;color:var(--ink-3)}
 .lg{margin-left:auto;display:flex;gap:13px;flex-wrap:wrap;padding-top:2px}
@@ -294,9 +294,9 @@ textarea{resize:vertical}
    percentage of the card. Sized as a percentage, a machine with five
    supplies got a taller card and therefore a smaller drawing than one with
    two — the same object rendered at two sizes on one page. */
-.prstack{display:grid;gap:18px}
-.prbody{display:flex;gap:28px;align-items:center;margin-top:16px;flex:1}
-.prdiag{flex:0 0 430px;height:360px;display:grid;place-items:center;
+.prstack{display:grid;gap:18px;min-width:0}
+.prbody{display:flex;gap:28px;align-items:center;margin-top:16px;flex:1;min-width:0}
+.prdiag{flex:0 0 430px;height:360px;display:grid;place-items:center;min-width:0;
   border-radius:18px;box-shadow:var(--i-md);padding:16px}
 @media (max-width:1100px){.prdiag{flex:0 0 340px;height:290px}}
 .prsup{flex:1;min-width:0;display:grid;align-content:center;
@@ -308,14 +308,14 @@ svg.schem .sl{fill:none;stroke:var(--ink-2);stroke-width:1.5;stroke-linejoin:rou
 svg.schem .sd{fill:none;stroke:var(--ink-3);stroke-width:1.1;opacity:.7}
 svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-dasharray:3 4}
 .suprow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:baseline;
-  margin-bottom:13px}
+  margin-bottom:13px;min-width:0}
 .suprow b{font-size:12.5px;font-weight:600;min-width:0}
 .suprow .lab{white-space:nowrap}
 .suprow .trk{grid-column:1/-1;height:11px;margin-top:1px}
 .sdot{width:9px;height:9px;border-radius:3px;align-self:center}
-.prcard{display:flex;flex-direction:column}
+.prcard{display:flex;flex-direction:column;min-width:0}
 .prmeta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:6px;
-  padding-top:14px;border-top:1px solid var(--hair)}
+  padding-top:14px;border-top:1px solid var(--hair);min-width:0}
 .prmeta div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .prmeta b{font-family:var(--mono);font-size:11.5px;font-weight:600;
   word-break:break-all}
@@ -323,10 +323,11 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
 .runway{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3)}
 .runway.soon{color:var(--warn);font-weight:600}
-.pralerts{margin-top:14px;display:grid;gap:8px}
+.pralerts{margin-top:14px;display:grid;gap:8px;min-width:0}
 .pralerts div{display:flex;align-items:center;gap:10px;font-size:12.5px}
 .pralerts span{min-width:0}
-.prtrays{margin-top:16px;border-radius:14px;box-shadow:var(--i-sm);overflow-x:auto}
+.prtrays{margin-top:16px;border-radius:14px;box-shadow:var(--i-sm);
+  overflow-x:auto;min-width:0}
 .prtrays table{width:100%}
 .prtrays th{padding:9px 14px;font-size:9px}
 .prtrays td{padding:8px 14px;font-size:12px;border-top:1px solid var(--hair)}
@@ -390,6 +391,23 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   .prbody{gap:16px}
   .prsup{grid-template-columns:1fr}
   .prmeta{gap:8px 18px}
+
+  /* The tray table's five nowrap columns were what forced the page wider
+     than the screen. On a phone each tray becomes its own block instead. */
+  .prtrays{overflow-x:visible;box-shadow:none;margin-top:12px}
+  .prtrays thead{display:none}
+  .prtrays table,.prtrays tbody,.prtrays tr,.prtrays td{display:block;width:auto}
+  .prtrays tr{border-radius:13px;box-shadow:var(--i-sm);padding:11px 13px;
+    margin-bottom:9px}
+  .prtrays td{border:0;padding:1px 0;white-space:normal;font-size:12px;
+    display:flex;justify-content:space-between;gap:12px}
+  .prtrays td:first-child{font-size:13px;margin-bottom:4px}
+  .prtrays td::before{content:attr(data-l);font-family:var(--mono);font-size:9px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .prtrays td:first-child::before{content:none}
+
+  .prmeta{display:grid;grid-template-columns:1fr 1fr;gap:11px 16px}
+  .prmeta b{font-size:11px}
 
   form{padding:16px;gap:13px}
   .f2{gap:13px}
@@ -1613,10 +1631,10 @@ function renderPrinters(){
       var col=x.unmeasured?"var(--ok)"
         :(x.percent==null?"var(--ink-3)":(x.percent<=10?"var(--bad)":x.percent<=25?"var(--warn)":"var(--ok)"));
       return '<tr><td><b>'+esc(x.name)+'</b></td>'
-        +'<td class="num dim">'+esc(x.paper||"—")+'</td>'
-        +'<td class="num dim">'+esc(cap||"—")+'</td>'
-        +'<td class="num dim">'+esc(x.media||"—")+'</td>'
-        +'<td class="num" style="color:'+col+'">'+lvl+'</td></tr>';
+        +'<td class="num dim" data-l="Paper">'+esc(x.paper||"—")+'</td>'
+        +'<td class="num dim" data-l="Capacity">'+esc(cap||"—")+'</td>'
+        +'<td class="num dim" data-l="Media">'+esc(x.media||"—")+'</td>'
+        +'<td class="num" data-l="Level" style="color:'+col+'">'+lvl+'</td></tr>';
     }).join("");
     var openDoors=(r.covers||[]).filter(function(c){return c.open});
     var meta=[];
