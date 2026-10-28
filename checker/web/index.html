@@ -87,7 +87,8 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
 .ib svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .ib .pip{position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--bad);
   box-shadow:0 0 0 2.5px var(--paper)}
-.wrap{padding:24px max(16px,env(safe-area-inset-right,0px)) 64px 22px;max-width:1300px}
+.wrap{padding:24px max(18px,env(safe-area-inset-right,0px)) 64px 22px;
+  max-width:1900px;margin-inline:auto;width:100%}
 
 /* ---------- surfaces ---------- */
 .card{border-radius:24px;box-shadow:var(--r-lg)}
@@ -284,6 +285,7 @@ textarea{resize:vertical}
   .wrap{padding-left:max(16px,env(safe-area-inset-left,0px))}
 }
 @media (max-width:620px){.search{display:none}}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 /* printer schematics — a drawing, not an infographic. No text inside the
    SVG: the supply list sits beside it and callouts only repeated it.
@@ -342,6 +344,67 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
 .out:hover{color:var(--bad);box-shadow:var(--r-sm)}
 .out svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .stale{color:var(--warn)}
+/* ---- phones -------------------------------------------------------------
+   Checked against the fixed widths that actually exist in this file: the
+   printer drawing's 430px box, the supply grid's 230px columns, the app
+   grid's 246px, and the hero numerals. Tables keep their own horizontal
+   scroll; nothing else may push the page sideways. */
+@media (max-width:620px){
+  .wrap{padding:16px max(16px,env(safe-area-inset-right,0px)) 48px
+        max(16px,env(safe-area-inset-left,0px))}
+  .top{padding:11px max(16px,env(safe-area-inset-right,0px)) 11px
+       max(16px,env(safe-area-inset-left,0px));gap:10px}
+  .top h1{font-size:17px}
+  .grid{gap:14px}
+  .mb{margin-bottom:14px}
+  .sh{margin:22px 0 11px;gap:9px}
+  .sh h2{font-size:15.5px}
+
+  /* The hero numeral is the one thing that will overflow a narrow card. */
+  .hero,.ins{padding:19px;border-radius:20px;min-height:0}
+  .hero .big{font-size:42px}
+  .hero .big em{font-size:18px}
+  .ins h2{font-size:18px;max-width:none}
+  .hero p,.ins p{font-size:12.2px;max-width:none}
+  .ins .ft{flex-wrap:wrap;gap:10px}
+
+  .stat{padding:15px 16px 16px;border-radius:17px}
+  .stat .n{font-size:23px}
+  .ch{padding:16px 15px 13px;border-radius:20px}
+  .chd{gap:10px}
+  .lg{margin-left:0}
+  .plot{padding:9px 7px 6px}
+
+  .ag{grid-template-columns:1fr}
+  .app{padding:15px}
+
+  .hc{border-radius:17px;padding:14px 15px 13px}
+  .row{padding:14px 15px;gap:11px}
+  .row .when{width:100%;order:-1}
+  .row p{font-size:12.2px}
+
+  /* The printer drawing: fill the width rather than keep a desktop-sized
+     box, and let the SVG set its own height. */
+  .prdiag{flex:none;width:100%;height:auto;padding:10px}
+  .prdiag svg.schem{width:100%;height:auto}
+  .prbody{gap:16px}
+  .prsup{grid-template-columns:1fr}
+  .prmeta{gap:8px 18px}
+
+  form{padding:16px;gap:13px}
+  .f2{gap:13px}
+  .btn{padding:10px 16px}
+  .seg{flex-wrap:wrap}
+  .pal{border-radius:20px}
+  .scrim{padding:8vh 12px 12px}
+}
+@media (max-width:420px){
+  .hero .big{font-size:36px}
+  .sh .r{width:100%}
+  .seg{width:100%}
+  .seg button{flex:1;text-align:center}
+}
+
 </style>
 </head>
 <body>
