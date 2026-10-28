@@ -1571,7 +1571,8 @@ function renderPrinters(){
 
     return '<div class="ch prcard"><div class="chd"><div><h3>'+esc(r.name)+'</h3>'
       +'<p>'+esc(r.location||r.host)+(r.location?" · "+esc(r.host):"")+'</p></div>'
-      +pill(r.state,r.state==="bad"?"Attention":r.state==="warn"?"Low":"OK")+'</div>'
+      +pill(r.state,r.state==="bad"?"Attention":r.state==="warn"?"Low"
+            :r.state==="dim"?"Asleep":"OK")+'</div>'
       +(r.error
         ?'<div class="mt"><b>Not answering</b>'+esc(r.error)+'</div>'
         :'<div class="prbody"><div class="prdiag">'+schematic(r)+'</div>'

@@ -349,13 +349,26 @@ class Engine:
                 # the same rule the service checks use.
                 fails = self.printer_fails.get(host, 0) + 1
                 self.printer_fails[host] = fails
-                if fails >= 3:
-                    self.store.put_printer(host, p.get("name") or host, "",
-                                           p.get("location", ""), "unreachable",
-                                           "bad", f"{err} ({fails} polls)", None,
-                                           {"supplies": [], "trays": []}, err)
-                else:
-                    log(f"printer {host}: {err} (attempt {fails} of 3)")
+                grace = p.get("offline_polls", 12)
+                if fails < grace:
+                    log(f"printer {host}: {err} (quiet poll {fails} of {grace})")
+                    continue
+                # Silent on every port too: almost certainly deep sleep, which
+                # is normal overnight. Say so rather than crying wolf nightly.
+                sleeping = prt.asleep(host)
+                prev = self.store.one("SELECT payload, pages FROM printers "
+                                      "WHERE host=?", (host,)) or {}
+                try:
+                    keep = json.loads(prev.get("payload") or "{}")
+                except ValueError:
+                    keep = {}
+                self.store.put_printer(
+                    host, p.get("name") or host, "", p.get("location", ""),
+                    "asleep" if sleeping else "unreachable",
+                    "dim" if sleeping else "bad",
+                    ("not answering on any port — most likely deep sleep"
+                     if sleeping else f"{err} ({fails} polls)"),
+                    prev.get("pages"), keep, None if sleeping else err)
                 continue
             self.printer_fails[host] = 0
             prev = self.store.one("SELECT payload FROM printers WHERE host=?",

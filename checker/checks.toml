@@ -320,6 +320,12 @@ severity = "notify"
 #
 # community defaults to "public". Set warn_percent / bad_percent per printer
 # if one of them burns a colour much faster than the rest.
+#
+# offline_polls is how many silent polls before it is reported — default 12,
+# an hour at the five-minute interval. Multifunction devices deep-sleep
+# overnight and drop off the network entirely, and a board that goes red
+# every evening is a board nobody reads. When every port is silent it is
+# recorded as asleep rather than faulty.
 
 [[printers]]
 host     = "192.168.42.161"

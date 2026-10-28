@@ -294,6 +294,30 @@ def read(host, community="public", timeout=3.0, full=True):
     }, None
 
 
+def asleep(host, timeout=2.0):
+    """Is this a sleeping printer rather than a broken one?
+
+    Energy rules push multifunction devices into a deep sleep that drops the
+    network interface entirely — every port goes dark and SNMP with it, then
+    it wakes on activity with its uptime counter untouched. Overnight and all
+    weekend, that is normal.
+
+    There is no remote way to tell "asleep" from "unplugged": both are
+    silence. But a device that answers nothing at all, having answered
+    earlier, is far more likely asleep than dead, and treating every evening
+    as an incident is how a board stops being read.
+    """
+    import socket
+    for port in (9100, 80, 443, 515, 631):
+        try:
+            s = socket.create_connection((host, port), timeout=timeout)
+            s.close()
+            return False            # something answers, so it is awake
+        except OSError:
+            continue
+    return True
+
+
 def worst(data, warn=20, bad=10):
     """The state of the most depleted measurable supply.
 
