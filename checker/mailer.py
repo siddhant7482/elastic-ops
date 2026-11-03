@@ -122,12 +122,24 @@ class Gmail:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return True, f"sent ({r.status})"
         except urllib.error.HTTPError as e:
-            # A 401 here nearly always means the refresh token was revoked —
-            # which Google does on password change. Say so, rather than
-            # leaving someone to read the raw JSON at 3am.
+            # Two very different faults both arrive as 401, and the old
+            # message blamed the refresh token for both — which sends you off
+            # to redo the whole consent dance when the actual problem is a
+            # mistyped secret. Google names which one it is; use that.
             body_txt = e.read().decode("utf-8", "replace")[:200]
-            hint = (" — the refresh token looks revoked; re-run --gmail-auth"
-                    if e.code == 401 else "")
+            hint = ""
+            if "invalid_client" in body_txt:
+                hint = (" — OPS_GMAIL_CLIENT_SECRET is wrong or does not match "
+                        "gmail_client_id. The refresh token is fine; do NOT "
+                        "re-run --gmail-auth. Check for a placeholder still in "
+                        ".env, or a duplicate key (the FIRST one wins).")
+            elif "invalid_grant" in body_txt:
+                hint = (" — the refresh token is revoked or expired. Google "
+                        "revokes on password change, and expires it after 7 "
+                        "days while the consent screen is External/Testing. "
+                        "Re-run --gmail-auth.")
+            elif e.code == 401:
+                hint = " — credentials rejected; check .env against checks.toml"
             return False, f"gmail HTTP {e.code}: {body_txt}{hint}"
         except Exception as e:
             return False, f"gmail failed: {e}"

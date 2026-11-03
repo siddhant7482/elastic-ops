@@ -99,8 +99,8 @@ smtp_port     = 587
 smtp_user     = ""
 smtp_password = ""              # set via OPS_SMTP_PASSWORD
 
-mail_from  = "subscriptions@elasticgroup.co.uk"   # must be the mailbox that granted consent
-mail_to    = "subscriptions@elasticgroup.co.uk"   # comma separated to add more
+mail_from  = "s.bhasin@elasticgroup.co.uk"   # must be the mailbox that granted consent
+mail_to    = "maria@elasticgroup.co.uk, e.cohen@elasticgroup.co.uk"
 portal_url = "http://10.10.1.70:8080"   # included in the body
 
 #   python3 app.py checks.toml --mail-test
