@@ -15,6 +15,7 @@ Elastic Ops — entry point.
 
     python3 app.py checks.toml --gmail-auth        get a Gmail refresh token
     python3 app.py checks.toml --mail-test         send one test email
+    python3 app.py checks.toml --deadman-test      ping the dead-man URL once
     python3 app.py checks.toml --counters <ip>     dump a printer's raw counters
 
 Python 3.11+, standard library only. Nothing to pip install, which is the point:
@@ -118,6 +119,41 @@ def matrix_cli(cfg, args):
 
     if "--gmail-auth" in args:
         gmail_auth(cfg)
+        return True
+
+    if "--deadman-test" in args:
+        # The one alert path that cannot announce its own failure: if this URL
+        # is wrong, the symptom is silence, which is also what success looks
+        # like. So it gets a test, like every other channel.
+        import urllib.error
+        import urllib.request
+        url = s["deadman_url"]
+        if not url:
+            print("No deadman_url set, so nothing would notice this dying.\n")
+            print("  Make a check at healthchecks.io (or any heartbeat "
+                  "service OUTSIDE this estate — a watchdog on pepper cannot\n"
+                  "  report that pepper has stopped), then put its ping URL in "
+                  ".env as:\n")
+            print("    OPS_DEADMAN_URL=https://hc-ping.com/<uuid>\n")
+            print("  Set the check's period to 5 minutes with a 10 minute "
+                  "grace. The checker pings every 60s, so anything\n"
+                  "  shorter than that is a false alarm waiting to happen.")
+            return True
+        shown = url if len(url) < 60 else url[:57] + "..."
+        print(f"Pinging {shown}")
+        try:
+            with urllib.request.urlopen(url, timeout=s["timeout"]) as r:
+                body = r.read(200).decode("utf-8", "replace").strip()
+            print(f"  HTTP {r.status} {body!r}")
+            print("  Sent. Confirm the check went green, then stop the "
+                  "service and confirm it goes red —\n"
+                  "  an untested dead-man switch is indistinguishable from "
+                  "no dead-man switch.")
+        except urllib.error.HTTPError as e:
+            print(f"  HTTP {e.code} — the service answered but rejected it. "
+                  "Wrong or deleted check UUID?")
+        except Exception as e:
+            print(f"  failed: {e}")
         return True
 
     if "--mail-test" in args:

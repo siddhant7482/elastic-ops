@@ -12,7 +12,9 @@ became `tomllib` in 3.11, so the config path under test is the real one.
 Exit code 0 means every assertion passed.
 """
 
+import contextlib
 import http.cookiejar
+import io
 import json
 import os
 import queue
@@ -1004,6 +1006,62 @@ def main():
           "S.storage=r[14]" in page
           and page.count("api(\"/api/") == 15, page.count("api(\"/api/"))
     check("storage is in the nav", '"storage","Disks' in page)
+
+    print("\ndead-man switch")
+    # The only alert path that cannot report its own failure: when it is
+    # misconfigured the symptom is silence, which is also what working looks
+    # like. So it is worth asserting rather than assuming.
+    keep_dm = s["deadman_url"]
+    s["deadman_url"] = ""
+    engine.deadman()                        # must be a no-op, not a crash
+    check("an unset deadman url is a no-op", True)
+
+    s["deadman_url"] = base + "/health"
+    engine.deadman()
+    check("a working deadman url is pinged without raising", True)
+
+    # If the URL is wrong, the ping must fail quietly. A dead-man switch that
+    # takes the check loop down with it is worse than not having one.
+    dead_port = free_port()
+    s["deadman_url"] = f"http://127.0.0.1:{dead_port}/nothing-here"
+    try:
+        engine.deadman()
+        survived = True
+    except Exception:                                            # noqa: BLE001
+        survived = False
+    check("an unreachable deadman url does not take the loop down", survived)
+
+    s["deadman_url"] = base + "/api/status"     # 401 without a session
+    try:
+        engine.deadman()
+        survived = True
+    except Exception:                                            # noqa: BLE001
+        survived = False
+    check("a rejecting deadman url does not take the loop down", survived)
+    s["deadman_url"] = keep_dm
+
+    # And the CLI path, since a switch nobody can test is how this came to be
+    # unconfigured for weeks in the first place.
+    import app as appmod
+    s["deadman_url"] = base + "/health"
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        handled = appmod.matrix_cli(cfg, ["--deadman-test"])
+    out = buf.getvalue()
+    check("--deadman-test is handled as a CLI command", handled is True)
+    check("--deadman-test reports the HTTP status it got",
+          "HTTP 200" in out, out[:160])
+
+    s["deadman_url"] = ""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        appmod.matrix_cli(cfg, ["--deadman-test"])
+    out = buf.getvalue()
+    check("--deadman-test explains the setup when nothing is configured",
+          "healthchecks.io" in out and "OPS_DEADMAN_URL" in out, out[:160])
+    check("--deadman-test warns the watchdog must be off-estate",
+          "OUTSIDE this estate" in out, out[:160])
+    s["deadman_url"] = keep_dm
 
     print("\nconcurrency limits")
     # The busy reply is assembled from its own body, so the two can never drift.
