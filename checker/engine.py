@@ -28,6 +28,7 @@ import probes
 import whatsapp as wamod
 from store import now
 
+DEADMAN = "Dead-man switch"
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
@@ -142,6 +143,10 @@ def load_config(path):
     # is the one failure where the clock is already running — the second disk
     # is what costs the data, and nobody chooses when that happens.
     s.setdefault("storage_severity", "page")
+    # A broken heartbeat means a total failure of this host would go
+    # unnoticed. That is the one thing the portal cannot report after
+    # the fact, so it is a page.
+    s.setdefault("deadman_severity", "page")
     s.setdefault("whatsapp_provider", "")
     s.setdefault("whatsapp_url", "")
     s.setdefault("whatsapp_token", "")
@@ -328,6 +333,15 @@ class Engine:
                            f"every {j['grace_hours']}h", j["severity"])
             names.append(j["name"])
         store.forget_missing(names)
+        self.deadman_fails = 0
+        # The watchdog gets watched. Not circular: the external heartbeat
+        # catches this whole host dying, while this catches the heartbeat
+        # itself being misconfigured — different failures, both real.
+        if cfg["settings"]["deadman_url"]:
+            store.register(DEADMAN, "internal", "Alerting", "external heartbeat",
+                           cfg["settings"]["deadman_severity"])
+        else:
+            store.forget(DEADMAN)
         self.printers = cfg.get("printers", [])
         self.next_full_printer = 0
         self.printer_fails = {}
@@ -568,13 +582,35 @@ class Engine:
         return None
 
     def deadman(self):
+        """Ping the external heartbeat — and notice when that stops working.
+
+        Nine days were lost to this. The URL was set to an example value, so
+        it was not empty and nothing warned; the ping then failed every 60
+        seconds into the journal, 2853 times, and the only place that said so
+        was a log line nobody reads.
+
+        Guessing whether a URL *looks* valid does not work — a placeholder can
+        be any string. Observing whether the heartbeat is *accepted* does.
+        """
         url = self.cfg["settings"]["deadman_url"]
         if not url:
             return
+        sev = self.cfg["settings"]["deadman_severity"]
         try:
             urllib.request.urlopen(url, timeout=self.cfg["settings"]["timeout"]).read()
         except Exception as e:
+            self.deadman_fails += 1
             log(f"dead-man ping failed: {e}")
+            # Five in a row is five minutes: past a blip, and the heartbeat is
+            # genuinely not arriving — which means this host dying would go
+            # unnoticed, the exact thing the switch exists to prevent.
+            if self.deadman_fails >= 5:
+                self.transition(DEADMAN, "down",
+                                f"{self.deadman_fails} consecutive failures — {e}",
+                                sev)
+            return
+        self.deadman_fails = 0
+        self.transition(DEADMAN, "up", "heartbeat accepted", sev)
 
     def loop(self):
         last_prune = 0

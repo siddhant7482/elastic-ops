@@ -1101,6 +1101,47 @@ def main():
           "still a placeholder" in out and "HTTP" not in out, out[:160])
     check("--deadman-test explains that .env does not overwrite",
           "FIRST occurrence wins" in out, out[:200])
+
+    # The watchdog gets watched. A placeholder can be any string, so guessing
+    # whether the URL looks right does not work — but noticing that the
+    # heartbeat is never accepted does. /api/status 401s instantly, which is a
+    # failure as far as the ping is concerned and keeps the test quick.
+    from engine import DEADMAN
+    s["deadman_url"] = base + "/api/status"
+    store.register(DEADMAN, "internal", "Alerting", "external heartbeat", "page")
+    store.update(DEADMAN, status="up", since=now_ts())
+    engine.deadman_fails = 0
+    sent3, keep3 = [], engine.note.send
+    engine.note.send = lambda *a, **k: sent3.append(a)
+    try:
+        for _ in range(4):
+            engine.deadman()
+        check("four failed heartbeats is a blip, not an alert",
+              (store.get(DEADMAN) or {}).get("status") == "up",
+              (store.get(DEADMAN) or {}).get("status"))
+        engine.deadman()
+        down = store.get(DEADMAN) or {}
+        check("five consecutive failed heartbeats goes down",
+              down.get("status") == "down", down.get("status"))
+        check("the detail counts the failures",
+              "5 consecutive" in (down.get("detail") or ""), down.get("detail"))
+        check("a broken heartbeat reaches the notifier",
+              any(DEADMAN in a[0] for a in sent3), sent3)
+
+        s["deadman_url"] = base + "/health"
+        engine.deadman()
+        check("a working heartbeat clears it",
+              (store.get(DEADMAN) or {}).get("status") == "up",
+              (store.get(DEADMAN) or {}).get("status"))
+        check("the failure counter resets on success", engine.deadman_fails == 0)
+    finally:
+        engine.note.send = keep3
+
+    check("deadman severity defaults to page",
+          s["deadman_severity"] == "page", s.get("deadman_severity"))
+    store.forget(DEADMAN)
+    check("an unconfigured heartbeat leaves no phantom check",
+          store.get(DEADMAN) is None)
     s["deadman_url"] = keep_dm
 
     print("\nconcurrency limits")

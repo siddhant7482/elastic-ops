@@ -359,6 +359,11 @@ class Store:
             (host, *keep))
 
 
+    def forget(self, name):
+        """Drop one check by name, for something that used to be
+        configured and is not any more."""
+        self.x("DELETE FROM state WHERE name=?", (name,))
+
     def forget_storage(self, names):
         """Drop storage checks for arrays and disks that have stopped being
         reported — a disk pulled out of a host should leave the board, not sit
