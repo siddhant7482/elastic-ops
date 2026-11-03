@@ -32,8 +32,9 @@ def main():
     print("     Google expires the refresh token after 7 days and alerting")
     print("     dies silently a week after you tick it off")
     print("  1. the Gmail API enabled on the project")
-    print("  2. an OAuth client of type 'Desktop app'")
-    print("  3. the redirect URI printed below added to that client\n")
+    print("  2. an OAuth client of type 'Desktop app' — not 'Web")
+    print("     application', which needs an exact redirect URI and so")
+    print("     cannot work with the loopback port this picks\n")
     mailer.interactive_auth(os.environ.get("GMAIL_CLIENT_ID", ""),
                             os.environ.get("GMAIL_CLIENT_SECRET", ""))
 
