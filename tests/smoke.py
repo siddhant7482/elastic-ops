@@ -1063,6 +1063,25 @@ def main():
           "OUTSIDE this estate" in out, out[:160])
     s["deadman_url"] = keep_dm
 
+    # A typo used to fall through to starting a second portal against the same
+    # database. It was only ever caught because the port was already bound.
+    old_argv = sys.argv
+    sys.argv = ["app.py", cfg_path, "--deadmantest"]
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = appmod.main()
+    finally:
+        sys.argv = old_argv
+    out = buf.getvalue()
+    check("an unknown option is refused, not run as a server", rc == 2, rc)
+    check("the refusal names the offending option",
+          "--deadmantest" in out, out[:120])
+    check("the refusal prints the usage", "--deadman-test" in out, out[:200])
+    check("every documented flag is in the allow-list",
+          {"--adduser", "--users", "--counters", "--deadman-test",
+           "--mail-test"} <= appmod.FLAGS, sorted(appmod.FLAGS))
+
     print("\nconcurrency limits")
     # The busy reply is assembled from its own body, so the two can never drift.
     clen = int(pool.BUSY.split(b"Content-Length: ")[1].split(b"\r\n")[0])

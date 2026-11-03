@@ -33,6 +33,18 @@ from engine import Engine, Notifier, load_config, load_inventory, log
 from store import Portal, Store
 
 
+# Every flag the CLI understands, here and in auth.cli(). An unknown one used
+# to fall straight through to starting the server: on a host where the service
+# happened to be stopped, a typo like `--deadmantest` would quietly bring up a
+# second portal against the same database. The only reason it was ever noticed
+# is that port 8080 was already taken.
+FLAGS = frozenset({
+    "--adduser", "--deluser", "--display", "--passwd", "--users",
+    "--gmail-auth", "--mail-test", "--deadman-test", "--whatsapp-test",
+    "--matrix-login", "--matrix-rooms", "--matrix-test", "--counters",
+})
+
+
 def gmail_auth(cfg):
     import mailer
     s = cfg["settings"]
@@ -204,6 +216,13 @@ def matrix_cli(cfg, args):
 
 def main():
     args = sys.argv[1:]
+    # Refuse before touching the database or binding a port: starting a second
+    # portal is never what someone meant by a flag this does not recognise.
+    unknown = [a for a in args if a.startswith("--") and a not in FLAGS]
+    if unknown:
+        print("unknown option: " + " ".join(unknown) + "\n")
+        print((__doc__ or "").strip())
+        return 2
     cfg_path = next((a for a in args if not a.startswith("--")), "checks.toml")
     here = os.path.dirname(os.path.abspath(cfg_path)) or "."
 
@@ -211,13 +230,18 @@ def main():
     s = cfg["settings"]
     inventory = load_inventory(os.path.join(here, s.get("inventory", "inventory.toml")))
 
+    # Handled before the database is opened. These are the commands you run on
+    # a live host to diagnose something, and none of them needs the store — so
+    # none of them should have a second process touching the production file,
+    # let alone running its schema and migrations.
+    if matrix_cli(cfg, args):
+        return
+
     store = Store(s["db"])
     portal = Portal(store)
     auth = authmod.Auth(store, s["session_hours"], s["cookie_secure"])
 
-    if authmod.cli(auth, args):
-        return
-    if matrix_cli(cfg, args):
+    if authmod.cli(auth, args):     # account commands genuinely need the store
         return
 
     engine = Engine(cfg, store, Notifier(cfg))
@@ -251,4 +275,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # sys.exit so a refused option is a non-zero status a script can act on.
+    # main() returns None on the normal paths, which exits 0.
+    sys.exit(main())
