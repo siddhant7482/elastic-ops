@@ -80,6 +80,243 @@ def memory():
     return total, total - avail
 
 
+def _sysread(path, default=""):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return default
+
+
+# Levels that survive losing a disk. Anything else — raid0, linear, a single
+# device — is one failure away from total loss, which the portal needs to say
+# out loud rather than leave the reader to infer from the level string.
+REDUNDANT_LEVELS = {"raid1", "raid4", "raid5", "raid6", "raid10"}
+
+
+def md_arrays(root="/sys/block"):
+    """Linux software RAID, read out of /sys rather than parsed from
+    /proc/mdstat. The sysfs files are one value each; mdstat is a single
+    human-readable blob whose layout has changed between kernel versions.
+
+    root is a parameter so the parser can be tested against a fixture tree
+    instead of whatever disks the test machine happens to have.
+    """
+    out = []
+    try:
+        blocks = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for dev in blocks:
+        base = f"{root}/{dev}/md"
+        if not os.path.isdir(base):
+            continue
+        level = _sysread(f"{base}/level")
+        members = []
+        try:
+            for entry in sorted(os.listdir(base)):
+                if entry.startswith("dev-"):
+                    members.append({
+                        "dev": entry[4:],
+                        "state": _sysread(f"{base}/{entry}/state"),
+                    })
+        except OSError:
+            pass
+        try:
+            degraded = int(_sysread(f"{base}/degraded", "0") or 0)
+        except ValueError:
+            degraded = 0
+        try:
+            disks = int(_sysread(f"{base}/raid_disks", "0") or 0)
+        except ValueError:
+            disks = 0
+        out.append({
+            "kind": "mdraid",
+            "name": dev,
+            "level": level,
+            "state": _sysread(f"{base}/array_state"),
+            "degraded": degraded,
+            "disks": disks,
+            "redundant": level in REDUNDANT_LEVELS,
+            "sync_action": _sysread(f"{base}/sync_action"),
+            "sync_completed": _sysread(f"{base}/sync_completed"),
+            "members": members,
+        })
+    return out
+
+
+ZFS_STATES = ("ONLINE", "DEGRADED", "FAULTED", "OFFLINE", "UNAVAIL", "REMOVED")
+
+
+def zfs_arrays():
+    """zpool health. Deliberately separate from pools() above: pvesm reports
+    how full a pool is and says nothing about whether its vdev is intact."""
+    out = []
+    names = [ln.split("\t")[0].strip()
+             for ln in sh("zpool", "list", "-H", "-o", "name").splitlines()
+             if ln.strip()]
+    for name in names:
+        health, members, redundant = "", [], False
+        for raw in sh("zpool", "status", name).splitlines():
+            line = raw.strip()
+            if line.startswith("state:"):
+                health = line.split(":", 1)[1].strip()
+                continue
+            # A mirror or raidz vdev tolerates a disk loss; a bare stripe of
+            # devices does not, and zpool reports both as simply ONLINE.
+            if re.match(r"^(mirror|raidz[123]?)\b", line):
+                redundant = True
+                continue
+            m = re.match(r"^(\S+)\s+(" + "|".join(ZFS_STATES) + r")\b", line)
+            if m and m.group(1) not in (name, "NAME"):
+                members.append({"dev": m.group(1), "state": m.group(2)})
+        out.append({
+            "kind": "zfs",
+            "name": name,
+            "level": "zfs",
+            "state": health,
+            "degraded": 0 if health == "ONLINE" else 1,
+            "disks": len(members),
+            "redundant": redundant,
+            "sync_action": "",
+            "sync_completed": "",
+            "members": members,
+        })
+    return out
+
+
+_UNITS = {"KB": 10 ** 3, "MB": 10 ** 6, "GB": 10 ** 9, "TB": 10 ** 12,
+          "KIB": 2 ** 10, "MIB": 2 ** 20, "GIB": 2 ** 30, "TIB": 2 ** 40}
+
+
+def _size_to_bytes(s):
+    m = re.match(r"^([\d.]+)\s*([KMGT]i?B)$", (s or "").strip(), re.I)
+    return int(float(m.group(1)) * _UNITS[m.group(2).upper()]) if m else None
+
+# Logical-drive states that mean "rebuilding", not "broken". HPE distinguishes
+# these and so should we: a rebuild resolves itself, and paging someone at 2am
+# for a disk that is already fixing itself is how a pager gets ignored.
+SSA_REBUILD = {"recovering", "rebuilding", "ready for recovery", "expanding",
+               "transforming", "queued for expansion", "queued for rebuild"}
+
+
+def ssacli_arrays():
+    """HPE / Adaptec Smart Array, via ssacli.
+
+    These controllers hand Linux one block device per array and keep the real
+    spindles to themselves, so /sys, zpool and SMART all see a single healthy
+    "LOGICAL VOLUME" no matter what is happening behind it. On proxmox that
+    hid a RAID 5 running in Interim Recovery Mode with a dead disk in bay
+    2I:3:8 — the array was serving data with its redundancy already spent,
+    and nothing outside the controller could tell.
+
+    Returns (arrays, physical_drives). Parsed from `ssacli ctrl all show
+    config`, whose shape is:
+
+        HPE Smart Array P408i-a SR Gen10 in Slot 0 (Embedded)  (sn: ...)
+           Array A (SAS,
+              logicaldrive 1 (1.36 TB, RAID 5, Interim Recovery Mode)
+              physicaldrive 1I:3:3 (port 1I:box 3:bay 3, SAS HDD, 300 GB, OK)
+
+    Note the unclosed bracket after "Array A (SAS," — that is real output, not
+    a transcription slip, so nothing here may depend on balanced brackets.
+    """
+    text = sh("ssacli", "ctrl", "all", "show", "config")
+    if not text.strip():
+        return [], []                 # not installed, or no controller
+    arrays, drives = [], []
+    slot, cur = "?", None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.search(r"\bin Slot (\S+)", line)
+        if m and not line.startswith(("Array", "logicaldrive", "physicaldrive")):
+            slot = m.group(1)
+            cur = None
+            continue
+        m = re.match(r"^Array ([A-Za-z0-9]+)", line)
+        if m:
+            cur = {"kind": "smartarray", "name": f"slot{slot} Array {m.group(1)}",
+                   "level": "", "state": "", "degraded": 0, "disks": 0,
+                   "redundant": False, "sync_action": "", "sync_completed": "",
+                   "members": []}
+            arrays.append(cur)
+            continue
+        if cur is None:
+            continue
+        m = re.match(r"^logicaldrive\s+\S+\s+\((.*?)\)?$", line)
+        if m:
+            parts = [p.strip() for p in m.group(1).split(",") if p.strip()]
+            lvl = next((p for p in parts if p.upper().startswith("RAID")), "")
+            cur["level"] = lvl.lower().replace(" ", "")      # "RAID 5" -> raid5
+            cur["state"] = parts[-1] if parts else ""
+            cur["redundant"] = cur["level"] in REDUNDANT_LEVELS
+            continue
+        m = re.match(r"^physicaldrive\s+(\S+)\s+\((.*?)\)?$", line)
+        if m:
+            bay = m.group(1)
+            parts = [p.strip() for p in m.group(2).split(",") if p.strip()]
+            status = parts[-1] if parts else ""
+            kind = next((p for p in parts if "HDD" in p or "SSD" in p), "")
+            size = next((p for p in parts
+                         if re.match(r"^[\d.]+\s*[KMGT]i?B$", p, re.I)), "")
+            cur["members"].append({"dev": bay, "state": status})
+            drives.append({"dev": bay, "model": kind, "serial": "",
+                           "size_bytes": _size_to_bytes(size),
+                           "health": status, "wearout": None,
+                           "type": "ssd" if "SSD" in kind.upper() else "hdd",
+                           "used": cur["name"]})
+
+    for a in arrays:
+        a["disks"] = len(a["members"])
+        state = (a["state"] or "").lower()
+        bad = sum(1 for m in a["members"]
+                  if (m["state"] or "").upper() not in ("OK", "REBUILDING"))
+        if state in SSA_REBUILD:
+            a["sync_action"] = state
+            a["degraded"] = bad
+        elif state and state != "ok":
+            # The vendor's vocabulary is only meaningful here, so the
+            # translation happens here: anything that is not OK and not a
+            # rebuild counts as degraded even when every member still reads
+            # OK, because a pulled disk stops being listed at all.
+            a["degraded"] = max(1, bad)
+        else:
+            a["degraded"] = bad
+    return arrays, drives
+
+
+def disks(node):
+    """Per-disk SMART health.
+
+    Goes through pvesh rather than calling smartctl directly: on a Proxmox
+    host it is already there and already root, it normalises the vendor
+    differences, and it will not spin up a disk that is parked just to ask
+    how it feels.
+    """
+    raw = sh("pvesh", "get", f"/nodes/{node}/disks/list", "--output-format", "json")
+    try:
+        rows = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    out = []
+    for d in rows if isinstance(rows, list) else []:
+        out.append({
+            "dev": d.get("devpath") or "",
+            "model": (d.get("model") or "").strip(),
+            "serial": (d.get("serial") or "").strip(),
+            "size_bytes": d.get("size"),
+            # PASSED / OK on a healthy drive, UNKNOWN where SMART is not
+            # readable (most virtual disks), anything else is a real answer.
+            "health": (d.get("health") or "UNKNOWN").strip(),
+            "wearout": d.get("wearout"),
+            "type": (d.get("type") or "").strip(),
+            "used": (d.get("used") or "").strip(),
+        })
+    return out
+
+
 def pools():
     """Proxmox storage, via pvesm. Falls back to nothing on a non-PVE host."""
     out = []
@@ -258,6 +495,15 @@ def main():
     total, used = memory()
     payload = {"host": host, "mem_total": total, "mem_used": used,
                "pools": pools(), "at": int(time.time())}
+    # Integrity goes on the ten-minute run, not the daily one. Capacity can
+    # wait a day; a degraded array cannot, because the second failure is the
+    # one that costs the data.
+    ssa_arrays, ssa_drives = ssacli_arrays()
+    payload["arrays"] = md_arrays() + zfs_arrays() + ssa_arrays
+    # Both halves go in: the controller's logical volume as pvesh sees it, and
+    # the real spindles behind it. The logical volume reports UNKNOWN for SMART
+    # and is ignored; the physical drives are where the truth is.
+    payload["disks"] = disks(host) + ssa_drives
     # The metrics run omits 'guests' entirely rather than sending an empty
     # list, which the portal would read as "this host has none".
     if not a.metrics_only:

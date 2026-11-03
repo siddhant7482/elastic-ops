@@ -173,6 +173,36 @@ CREATE TABLE IF NOT EXISTS certs (
   ts         INTEGER NOT NULL
 );
 
+-- Array integrity, which is a different question from the capacity in pools:
+-- a RAID 0 reporting 40% used is still one disk away from losing all of it.
+CREATE TABLE IF NOT EXISTS arrays (
+  host      TEXT NOT NULL,
+  name      TEXT NOT NULL,          -- md0, rpool
+  kind      TEXT,                   -- mdraid | zfs
+  level     TEXT,                   -- raid0, raid5, zfs
+  state     TEXT,                   -- array_state, or zpool state
+  degraded  INTEGER,                -- disks missing from the array
+  disks     INTEGER,
+  redundant INTEGER,                -- survives losing one disk at all?
+  sync_action    TEXT,
+  sync_completed TEXT,
+  members   TEXT,                   -- json: [{dev, state}]
+  ts        INTEGER NOT NULL,
+  PRIMARY KEY (host, name)
+);
+
+CREATE TABLE IF NOT EXISTS disks (
+  host       TEXT NOT NULL,
+  dev        TEXT NOT NULL,
+  model      TEXT, serial TEXT,
+  size_bytes INTEGER,
+  health     TEXT,                  -- PASSED/OK, UNKNOWN, or a real fault
+  wearout    TEXT,                  -- SSD life left, where the drive reports it
+  type       TEXT, used TEXT,
+  ts         INTEGER NOT NULL,
+  PRIMARY KEY (host, dev)
+);
+
 CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY, pwhash TEXT NOT NULL,
   display TEXT, role TEXT DEFAULT 'admin', created_ts INTEGER NOT NULL
@@ -243,11 +273,102 @@ class Store:
 
     def forget_missing(self, names):
         """Drop state for checks deleted from the config, so the portal does
-        not keep showing something nobody is measuring any more."""
+        not keep showing something nobody is measuring any more.
+
+        Limited to the kinds that come FROM the config. Storage checks are
+        discovered from what the collectors push, long after this runs at
+        startup, so sweeping them here would delete every array on restart
+        and then re-alert on the next poll as though it were news.
+        """
         if not names:
             return
         marks = ",".join("?" * len(names))   # placeholders only; no data is interpolated
-        self.x(f"DELETE FROM state WHERE name NOT IN ({marks})", tuple(names))  # noqa: S608
+        sql = f"DELETE FROM state WHERE kind IN ('check','job') AND name NOT IN ({marks})"  # noqa: S608,E501
+        self.x(sql, tuple(names))
+
+    def arrays(self):
+        return self.q("SELECT * FROM arrays ORDER BY host, name")
+
+    def disks(self):
+        return self.q("SELECT * FROM disks ORDER BY host, dev")
+
+    def put_arrays(self, host, rows):
+        """Replace this host's arrays. A removed array has to disappear, not
+        linger as a healthy-looking row nobody is measuring any more."""
+        t = now()
+        seen = []
+        for r in rows:
+            name = r.get("name")
+            if not name:
+                continue
+            seen.append(name)
+            self.x(
+                "INSERT INTO arrays(host,name,kind,level,state,degraded,disks,"
+                "redundant,sync_action,sync_completed,members,ts) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(host,name) DO UPDATE SET kind=excluded.kind, "
+                "level=excluded.level, state=excluded.state, "
+                "degraded=excluded.degraded, disks=excluded.disks, "
+                "redundant=excluded.redundant, sync_action=excluded.sync_action, "
+                "sync_completed=excluded.sync_completed, "
+                "members=excluded.members, ts=excluded.ts",
+                (host, name, r.get("kind"), r.get("level"), r.get("state"),
+                 int(r.get("degraded") or 0), int(r.get("disks") or 0),
+                 1 if r.get("redundant") else 0, r.get("sync_action"),
+                 r.get("sync_completed"),
+                 json.dumps(r.get("members", [])), t))
+        self._prune(host, "arrays", "name", seen)
+        return len(seen)
+
+    def put_disks(self, host, rows):
+        t = now()
+        seen = []
+        for r in rows:
+            dev = r.get("dev")
+            if not dev:
+                continue
+            seen.append(dev)
+            self.x(
+                "INSERT INTO disks(host,dev,model,serial,size_bytes,health,"
+                "wearout,type,used,ts) VALUES(?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(host,dev) DO UPDATE SET model=excluded.model, "
+                "serial=excluded.serial, size_bytes=excluded.size_bytes, "
+                "health=excluded.health, wearout=excluded.wearout, "
+                "type=excluded.type, used=excluded.used, ts=excluded.ts",
+                (host, dev, r.get("model"), r.get("serial"),
+                 r.get("size_bytes"), r.get("health"),
+                 str(r.get("wearout")) if r.get("wearout") is not None else None,
+                 r.get("type"), r.get("used"), t))
+        self._prune(host, "disks", "dev", seen)
+        return len(seen)
+
+    def _prune(self, host, table, key, keep):
+        """Drop this host's rows that the latest post did not mention.
+
+        table and key are fixed strings from the two callers above, never
+        anything that arrived over the wire; only the values are bound.
+        """
+        if table not in ("arrays", "disks") or key not in ("name", "dev"):
+            raise ValueError("not a prunable table")
+        if not keep:
+            self.x(f"DELETE FROM {table} WHERE host=?", (host,))  # noqa: S608
+            return
+        marks = ",".join("?" * len(keep))
+        self.x(
+            f"DELETE FROM {table} WHERE host=? AND {key} NOT IN ({marks})",  # noqa: S608
+            (host, *keep))
+
+
+    def forget_storage(self, names):
+        """Drop storage checks for arrays and disks that have stopped being
+        reported — a disk pulled out of a host should leave the board, not sit
+        there green forever on its last known reading."""
+        if not names:
+            self.x("DELETE FROM state WHERE kind='storage'")
+            return
+        marks = ",".join("?" * len(names))
+        sql = f"DELETE FROM state WHERE kind='storage' AND name NOT IN ({marks})"  # noqa: S608
+        self.x(sql, tuple(names))
 
     def get(self, name):
         return self.one("SELECT * FROM state WHERE name=?", (name,))
@@ -558,6 +679,7 @@ class Portal:
                      (host, r["name"], t, r.get("used_bytes")))
         return len(rows)
 
+    # -- array and disk integrity ----------------------------------------
     def pool_growth(self, host, name, days=30):
         """Bytes per week, measured from the oldest sample we hold. Returns
         (bytes_per_week, days_until_full) — a date is more use than a percentage."""

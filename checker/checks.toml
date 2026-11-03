@@ -21,11 +21,54 @@ web_dir           = "web"           # the portal's static files
 printer_interval  = 300             # seconds
 inventory         = "inventory.toml"
 
+# Array and disk integrity, pushed by the collector on its ten-minute run and
+# swept into alertable checks every cycle. This is a different question from
+# the capacity in [capacity] — a RAID 0 reporting 40% used is still one disk
+# away from losing all of it.
+#
+# "page" by default because a degraded array is the one fault where the clock
+# is already running: the second disk is what costs the data, and nobody gets
+# to choose when that happens.
+#
+# An array having NO redundancy is deliberately not an alert. That is how the
+# box was built, not an event, and a row that is red from the day it appears
+# is a row people learn to scroll past. It shows on the Disks & arrays page.
+storage_severity  = "page"
+
 # Sessions. cookie_secure must stay false until the portal is behind HTTPS —
 # a Secure cookie over plain http is simply never sent, and login silently
 # fails with no error anywhere.
 session_hours     = 12
 cookie_secure     = false
+
+# Concurrency. Connections go to a fixed pool of workers through a queue
+# (see pool.py), rather than one thread per connection without limit.
+#
+# http_workers is NOT a throughput dial. Every query in the process goes
+# through one sqlite connection behind one mutex that the check loop also
+# takes, so throughput tops out near 900 req/s whatever this says. Measured
+# against 200 concurrent clients: 8 workers gave 239 ms request p99 and 6.6 ms
+# of check-loop wait; 32 workers left throughput identical and pushed the loop
+# to 45 ms. Raising it makes checks run late and nothing else.
+http_workers      = 8
+# Connections queued for a worker. The accept loop blocks while this is full,
+# so a burst waits in the kernel backlog instead of being refused — refusing
+# eagerly turned 57% of a 200-client burst into 503s the kernel would have
+# absorbed for free.
+http_backlog      = 256
+http_idle         = 5               # seconds a stalled socket may hold a worker
+http_shed_after   = 5               # seconds the queue may stay full before 503s
+
+# Sign-in is the one expensive route: scrypt at n=2**15 needs exactly 32 MB
+# every time, and it is paid even for a username that does not exist, so that
+# a missing account and a wrong password take the same time. Two at once caps
+# that at 64 MB on a host whose spare memory belongs to its guests.
+login_concurrency = 2
+# A login waiting for a slot still holds a worker, so this is also the longest
+# a rush of sign-ins can tie up the pool. The pool only ever presents
+# http_workers of them at once, which clears in about 360 ms, so one second
+# admits any real burst and only sheds genuine abuse.
+login_wait        = 1
 
 # Shared secret for collector/post_estate.py, sent as the X-Ingest-Token
 # header. Generate one with:  python3 -c "import secrets;print(secrets.token_urlsafe(32))"

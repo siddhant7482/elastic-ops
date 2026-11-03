@@ -61,6 +61,11 @@ ENV_OVERRIDES = {
     # /var/lib/elastic-ops, and neither should have to edit a tracked file.
     "db": "OPS_DB",
     "listen_port": "OPS_PORT",
+    # Tunable without a deploy, because the right number is whatever the box
+    # turns out to stand up to.
+    "http_workers": "OPS_HTTP_WORKERS",
+    "http_backlog": "OPS_HTTP_BACKLOG",
+    "login_concurrency": "OPS_LOGIN_CONCURRENCY",
 }
 
 
@@ -119,6 +124,10 @@ def load_config(path):
     s.setdefault("mail_to", "")
     s.setdefault("portal_url", "")
     s.setdefault("printer_interval", 300)   # seconds between printer polls
+    # Severity for array and disk faults. "page" by default: a degraded array
+    # is the one failure where the clock is already running — the second disk
+    # is what costs the data, and nobody chooses when that happens.
+    s.setdefault("storage_severity", "page")
     s.setdefault("whatsapp_provider", "")
     s.setdefault("whatsapp_url", "")
     s.setdefault("whatsapp_token", "")
@@ -134,6 +143,25 @@ def load_config(path):
     s.setdefault("web_dir", "web")
     s.setdefault("session_hours", 12)
     s.setdefault("cookie_secure", False)
+    # Concurrency limits. The store serialises every query behind one mutex
+    # that the check loop also takes, so throughput tops out around 900 req/s
+    # whatever this is set to. Measured against 200 concurrent clients, 8 gave
+    # the best pair of numbers — 239 ms request p99 and 6.6 ms of check-loop
+    # wait. Raising it to 32 left throughput flat and pushed the loop to 45 ms.
+    # More workers here do not buy speed; they only make checks run late.
+    s.setdefault("http_workers", 8)
+    s.setdefault("http_backlog", 256)     # connections queued for a worker
+    s.setdefault("http_idle", 5)          # seconds a stalled socket may hold a worker
+    s.setdefault("http_shed_after", 5)    # seconds the queue may stay full before 503s
+    # scrypt at n=2**15 needs 128*n*r bytes — exactly 32 MB — every time, and
+    # auth.login pays it even for a username that does not exist. Two at once
+    # caps that at 64 MB on a host whose spare memory belongs to guests.
+    s.setdefault("login_concurrency", 2)
+    # Kept short on purpose: a login waiting for a slot is still holding one of
+    # the http_workers, so this is also the longest a burst of sign-ins can tie
+    # up the pool. One second admits any realistic burst (two hashes per ~90 ms,
+    # so about twenty) and sheds the rest rather than blocking the dashboard.
+    s.setdefault("login_wait", 1)
     for c in cfg.get("checks", []):
         c.setdefault("group", "Other")
         c.setdefault("interval", s["default_interval"])
@@ -401,6 +429,90 @@ class Engine:
                 {s["name"]: s["percent"] for s in data["supplies"]
                  if s["percent"] is not None})
 
+    def sweep_storage(self):
+        """Alert on array and disk integrity — which nothing else here did.
+
+        Capacity was already watched; integrity was not, and the two fail
+        differently. The portal would have reported local-lvm at 40% used on
+        a RAID 0 right up to the moment a single disk took the lot.
+
+        Deliberately NOT an alert: an array having no redundancy at all. That
+        is a standing property of how the box was built, not an event, and a
+        row that is red from the day it appears is a row people learn to scroll
+        past. It is shown plainly on the page and left out of the notifier.
+        """
+        sev = self.cfg["settings"]["storage_severity"]
+        live = []
+
+        for a in self.store.arrays():
+            name = f"array {a['host']}/{a['name']}"
+            live.append(name)
+            self.store.register(name, "storage", "Disks & arrays",
+                                f"{a['host']} {a['level'] or '?'}", sev)
+            try:
+                members = json.loads(a.get("members") or "[]")
+            except ValueError:
+                members = []
+            # Three vocabularies land in this one field: mdraid says "faulty",
+            # ZFS says "FAULTED"/"UNAVAIL", and HPE says "Failed" or
+            # "Predictive Failure". Matching on all of them is what lets the
+            # alert name the actual bay instead of just a count.
+            bad = [m for m in members
+                   if any(w in (m.get("state") or "").upper()
+                          for w in ("FAULTY", "FAULTED", "UNAVAIL", "REMOVED",
+                                    "OFFLINE", "FAILED", "PREDICTIVE"))]
+            state = (a.get("state") or "").strip()
+            degraded = int(a.get("degraded") or 0)
+
+            if degraded or state in ("DEGRADED", "FAULTED") or bad:
+                why = []
+                # Lead with the backend's own words where it has any. HPE's
+                # "Interim Recovery Mode" says more than any count could, and
+                # mdraid says "clean" even while degraded, so a healthy-looking
+                # state is dropped rather than printed as reassurance.
+                if state and state.lower() not in ("clean", "active", "ok",
+                                                   "online"):
+                    why.append(state)
+                if bad:
+                    why.append("faulty: " + ", ".join(
+                        m.get("dev", "?") for m in bad))
+                elif degraded:
+                    # No member named as bad, yet the array is short — the disk
+                    # is not failed, it is gone.
+                    why.append(f"{degraded} of {a['disks']} disks missing")
+                if not a["redundant"]:
+                    # Degraded with no redundancy is not "repair it soon".
+                    why.append("NO REDUNDANCY — data is already at risk")
+                self.transition(name, "down",
+                                f"{a['level']} — " + "; ".join(why), sev)
+            elif a.get("sync_action") not in ("", "idle", None):
+                # Rebuilding is not healthy and not broken. Record it, keep it
+                # off the pager: it resolves itself or it turns into a fault.
+                self.transition(name, "up",
+                                f"{a['level']} — {a['sync_action']} "
+                                f"{a.get('sync_completed') or ''}".strip(), sev)
+            else:
+                note = "no redundancy by design" if not a["redundant"] else "clean"
+                self.transition(name, "up", f"{a['level']} — {note}", sev)
+
+        for d in self.store.disks():
+            health = (d.get("health") or "UNKNOWN").upper()
+            # UNKNOWN is the normal answer from a virtual disk, not a fault.
+            if health in ("UNKNOWN", ""):
+                continue
+            name = f"disk {d['host']} {d['dev']}"
+            live.append(name)
+            self.store.register(name, "storage", "Disks & arrays",
+                                f"{d['host']} {d.get('model') or d['dev']}", sev)
+            if health in ("PASSED", "OK"):
+                self.transition(name, "up", f"SMART {health}", sev)
+            else:
+                self.transition(name, "down",
+                                f"SMART {health} — {d.get('model') or ''} "
+                                f"{d.get('serial') or ''}".strip(), sev)
+
+        self.store.forget_storage(live)
+
     def run_check(self, c):
         ok, ms, detail = probes.run(c, self.cfg["settings"]["timeout"])
         self.store.record(c["name"], ok, ms, detail)
@@ -469,6 +581,10 @@ class Engine:
                     except Exception as e:
                         log(f"cert check '{c['name']}' raised: {e}")
             self.sweep_jobs()
+            try:
+                self.sweep_storage()
+            except Exception as e:
+                log(f"storage sweep raised: {e}")
             if t >= self.next_printer:
                 self.next_printer = t + self.cfg["settings"]["printer_interval"]
                 try:

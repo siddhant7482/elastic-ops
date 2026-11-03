@@ -23,6 +23,7 @@ import mimetypes
 import os
 import urllib.parse
 
+import pool
 from engine import in_maintenance, iso, log
 from store import now
 
@@ -52,6 +53,13 @@ BUILD = _build_stamp()
 
 def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
     ingest_token = cfg["settings"]["ingest_token"]
+    # Login is the one route whose cost is measured in tens of megabytes rather
+    # than microseconds, so the number of them hashing at once is capped
+    # separately from the number of requests in flight. Note what this does and
+    # does not do: it bounds memory, not worker occupancy — a login waiting for
+    # a slot still holds its worker, which is why login_wait is kept short.
+    login_gate = pool.Gate(cfg["settings"]["login_concurrency"],
+                           cfg["settings"]["login_wait"])
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -59,6 +67,20 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
         sys_version = ""
 
         # -- plumbing ----------------------------------------------------
+        def _pressure_close(self):
+            """Hang up after answering while the pool is busy.
+
+            Keep-alive is worth having when the dashboard is polling and worth
+            nothing when every worker is parked on an idle browser socket. The
+            server decides which of those is happening; sending the header also
+            tells BaseHTTPRequestHandler to close, so the worker is released as
+            soon as the body is written.
+            """
+            srv = getattr(self, "server", None)
+            if srv is not None and getattr(srv, "under_pressure", None) \
+                    and srv.under_pressure():
+                self.send_header("Connection", "close")
+
         def _send(self, code, body, ctype="application/json", extra=None):
             if isinstance(body, dict | list):
                 body = json.dumps(body, default=str).encode()
@@ -72,6 +94,7 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             self.send_header("X-Frame-Options", "DENY")
             for k, v in (extra or {}):
                 self.send_header(k, v)
+            self._pressure_close()
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
@@ -82,6 +105,7 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             self.send_header("Content-Length", "0")
             for k, v in (extra or {}):
                 self.send_header(k, v)
+            self._pressure_close()
             self.end_headers()
 
         def _read_body(self):
@@ -149,9 +173,15 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 # Unauthenticated on purpose, so a load balancer or a human can
                 # use it. It reports WHICH build is running, because "did the
                 # deploy land?" was otherwise unanswerable without logging in.
-                return self._send(200, {"ok": True, "at": iso(now()),
-                                        "started": iso(STARTED),
-                                        "build": BUILD})
+                # The pool figures are here rather than behind the session gate
+                # because the question they answer — busy, or down? — is one you
+                # need answered from outside, exactly when you cannot sign in.
+                body = {"ok": True, "at": iso(now()), "started": iso(STARTED),
+                        "build": BUILD}
+                srv = getattr(self, "server", None)
+                if hasattr(srv, "snapshot"):
+                    body["http"] = srv.snapshot()
+                return self._send(200, body)
 
             if path.startswith("/checkin/"):
                 name = engine.checkin(path.rsplit("/", 1)[-1])
@@ -224,8 +254,17 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             wait = auth.locked(self._addr())
             if wait:
                 return self._login_page(f"Too many attempts. Try again in {wait}s.")
-            token = auth.login((f.get("username") or "").strip(),
-                               f.get("password") or "", self._addr())
+            # auth.login runs one scrypt whether or not the username exists, so
+            # the attempt rate is also a memory allocation rate. Queue briefly
+            # for a slot, then say so rather than letting the box swap.
+            if not login_gate.acquire():
+                log(f"login shed under load from {self._addr()}")
+                return self._login_page("The portal is busy. Try again in a moment.")
+            try:
+                token = auth.login((f.get("username") or "").strip(),
+                                   f.get("password") or "", self._addr())
+            finally:
+                login_gate.release()
             if not token:
                 log(f"failed login for '{f.get('username', '')}' from {self._addr()}")
                 return self._login_page("Wrong username or password.")
@@ -236,6 +275,28 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
         def _api_get(self, path, qs, user):
             if path == "/api/me":
                 return self._send(200, user)
+
+            if path == "/api/storage":
+                arrays = store.arrays()
+                for a in arrays:
+                    try:
+                        a["members"] = json.loads(a.get("members") or "[]")
+                    except ValueError:
+                        a["members"] = []
+                    a["redundant"] = bool(a.get("redundant"))
+                return self._send(200, {"arrays": arrays,
+                                        "disks": store.disks()})
+
+            if path == "/api/runtime":
+                # How close the portal is to its own limits. Behind the session
+                # gate because the login tally says how hard someone is trying.
+                srv = getattr(self, "server", None)
+                return self._send(200, {
+                    "http": srv.snapshot() if hasattr(srv, "snapshot") else {},
+                    "login": login_gate.snapshot(),
+                    "build": BUILD,
+                    "started": iso(STARTED),
+                })
 
             if path == "/api/status":
                 rows = store.all_state()
@@ -452,7 +513,12 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 if "guests" in d:
                     g = portal.put_guests(host, d["guests"])
                     log(f"ingest: {host} — {g} guests")
-                return self._send(200, {"ok": True, "pools": n, "guests": g})
+                # Same rule for arrays and disks: an older collector that does
+                # not send them at all must not look like a host that has none.
+                arr = store.put_arrays(host, d["arrays"]) if "arrays" in d else 0
+                dsk = store.put_disks(host, d["disks"]) if "disks" in d else 0
+                return self._send(200, {"ok": True, "pools": n, "guests": g,
+                                        "arrays": arr, "disks": dsk})
 
             return self._send(404, {"error": "not found"})
 

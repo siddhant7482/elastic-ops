@@ -721,6 +721,25 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     <div class="tw"><table><thead><tr><th>Host</th><th>Bay</th><th>Drive</th><th>Array</th><th>State</th></tr></thead><tbody id="drvrows"></tbody></table></div>
   </section>
 
+  <!-- DISKS & ARRAYS -->
+  <section id="v-storage" hidden>
+    <div class="grid g4 mb" id="ststats"></div>
+    <div class="sh"><h2>Arrays</h2></div>
+    <div class="mb" id="starrays"></div>
+    <div class="sh"><h2>Disks</h2></div>
+    <div class="tw"><table><thead><tr><th>Host</th><th>Device</th><th>Model</th><th>Serial</th><th>Size</th><th>SMART</th><th>Life left</th><th>Used by</th></tr></thead><tbody id="stdisks"></tbody></table>
+      <div id="stempty"></div>
+      <div class="note">Measured, not documented — this is what each host reports about
+        its own disks, which is a different question from the drive list under Hardware
+        (that one comes from <span class="num">inventory.toml</span>). Array state is read
+        from <span class="num">/sys/block</span> and <span class="num">zpool</span>; SMART
+        comes through <span class="num">pvesh</span>, which already runs as root and will
+        not spin up a parked disk to ask. <b>No redundancy</b> is a property of how the
+        array was built, not a fault, so it is shown here but never alerted on — a row
+        that is red from the day it appears is a row people learn to scroll past. A
+        degraded array <em>does</em> alert, at page severity.</div></div>
+  </section>
+
   <!-- PRINTERS -->
   <section id="v-printers" hidden>
     <div class="grid g4 mb" id="prstats"></div>
@@ -1031,12 +1050,13 @@ function load(){
   return Promise.all([
     api("/api/me"),api("/api/status"),api("/api/inventory"),api("/api/incidents"),
     api("/api/followups"),api("/api/changes"),api("/api/backups"),api("/api/capacity"),
-    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs"),api("/api/silences"),api("/api/printers")
+    api("/api/hosts"),api("/api/events"),api("/api/coverage"),api("/api/certs"),api("/api/silences"),api("/api/printers"),
+    api("/api/storage")
   ]).then(function(r){
     S.me=r[0];S.status=r[1];S.inv=r[2];S.incidents=r[3].incidents;S.followups=r[4].followups;
     S.changes=r[5].changes;S.backups=r[6].backups;S.drills=r[6].drills;S.pools=r[7].pools;
     S.hosts=r[8].hosts;S.hostinv=r[8].inventory;S.drives=r[8].drives;S.events=r[9].events;
-    S.cov=r[10];S.certs=r[11];S.sil=r[12];S.printers=r[13];
+    S.cov=r[10];S.certs=r[11];S.sil=r[12];S.printers=r[13];S.storage=r[14];
     renderAll();
   });
 }
@@ -1060,7 +1080,7 @@ function renderAll(){
     .join("").slice(0,2).toUpperCase();
   renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
   renderIncidents(); renderJobs(); renderAlerting(); renderHardware(); renderApps();
-  renderSecurity(); renderPrinters(); renderDataAtRest(); buildPalette();
+  renderSecurity(); renderStorage(); renderPrinters(); renderDataAtRest(); buildPalette();
   labelTables();
   H("boot").hidden=true;
 }
@@ -1483,6 +1503,80 @@ function renderHardware(){
       +'<td>'+pill(d.state,d.state_label)+'</td></tr>'}).join("");
 }
 
+/* --- disks & arrays --- */
+function degradedArray(a){
+  return (a.degraded||0)>0||a.state==="DEGRADED"||a.state==="FAULTED"
+    ||(a.members||[]).some(function(m){
+        return /faulty|FAULTED|UNAVAIL|REMOVED|OFFLINE/.test(m.state||"")});
+}
+function smartBad(d){
+  var h=String(d.health||"").toUpperCase();
+  return h!==""&&h!=="UNKNOWN"&&h!=="PASSED"&&h!=="OK";
+}
+function wear(v){
+  if(v==null)return "—";
+  var n=parseFloat(v);
+  return isNaN(n)?"—":n+"%";
+}
+function renderStorage(){
+  var arrays=(S.storage&&S.storage.arrays)||[], disks=(S.storage&&S.storage.disks)||[];
+  var deg=arrays.filter(degradedArray).length;
+  var naked=arrays.filter(function(a){return !a.redundant}).length;
+  var bad=disks.filter(smartBad).length;
+  var sync=arrays.filter(function(a){
+    return a.sync_action&&a.sync_action!=="idle"}).length;
+  H("ststats").innerHTML=[
+    {l:"Arrays degraded",v:deg,cls:deg?"bad":"",
+     p:deg?"a <b>second</b> failure loses the data":"every array intact"},
+    {l:"Arrays with no redundancy",v:naked,cls:naked?"warn":"",
+     p:naked?"<b>one disk</b> from total loss, by design":"all tolerate a disk loss"},
+    {l:"Disks with SMART faults",v:bad,cls:bad?"bad":"",
+     p:bad?"replace before the array degrades":"no drive is complaining"},
+    {l:"Rebuilding",v:sync,cls:sync?"warn":"",
+     p:sync?"redundancy is reduced until it finishes":"nothing resyncing"}
+  ].map(statCard).join("");
+
+  H("starrays").innerHTML=arrays.length?'<div class="tw"><table><thead><tr>'
+    +'<th>Host</th><th>Array</th><th>Type</th><th>Redundancy</th><th>State</th>'
+    +'<th>Disks</th><th>Members</th></tr></thead><tbody>'
+    +arrays.map(function(a){
+      var d=degradedArray(a), rebuilding=a.sync_action&&a.sync_action!=="idle";
+      var st=d?"bad":rebuilding?"warn":"ok";
+      var lbl=d?((a.degraded||0)>0?plural(a.degraded,"disk")+" missing":a.state)
+              :rebuilding?(a.sync_action+" "+(a.sync_completed||"")).trim():"Clean";
+      return '<tr><td class="dim">'+esc(a.host)+'</td><td><b>'+esc(a.name)+'</b></td>'
+        +'<td class="num">'+esc(a.level||"?")+'</td>'
+        +'<td>'+(a.redundant
+            ?'<span class="pill p-ok"><i></i>Tolerates one loss</span>'
+            :'<span class="pill p-warn"><i></i>None</span>')+'</td>'
+        +'<td>'+pill(st,lbl)+'</td>'
+        +'<td class="num">'+esc(a.disks||"—")+'</td>'
+        +'<td class="dim">'+((a.members||[]).map(function(m){
+            return /faulty|FAULTED|UNAVAIL|REMOVED|OFFLINE/.test(m.state||"")
+              ? '<b class="bad">'+esc(m.dev)+' ('+esc(m.state)+')</b>'
+              : esc(m.dev)}).join(", ")||"—")+'</td></tr>'}).join("")
+    +'</tbody></table></div>'
+    :'<div class="note">No arrays reported yet. The collector sends these on its '
+     +'ten-minute run — if this stays empty, the hosts are still on a build that '
+     +'predates it, so re-run <span class="num">install-collector.sh</span>.</div>';
+
+  H("stdisks").innerHTML=disks.map(function(d){
+    var h=String(d.health||"UNKNOWN").toUpperCase();
+    var st=(h==="PASSED"||h==="OK")?"ok":h==="UNKNOWN"?"dim":"bad";
+    return '<tr><td class="dim">'+esc(d.host)+'</td><td class="num">'+esc(d.dev)+'</td>'
+      +'<td>'+esc(d.model||"—")+'</td>'
+      +'<td class="num dim">'+esc(d.serial||"—")+'</td>'
+      +'<td class="num">'+esc(tb(d.size_bytes))+'</td>'
+      +'<td>'+pill(st,h==="UNKNOWN"?"Not reported":h)+'</td>'
+      +'<td class="num dim">'+esc(wear(d.wearout))+'</td>'
+      +'<td class="dim">'+esc(d.used||"—")+'</td></tr>'}).join("");
+  H("stempty").innerHTML=disks.length?""
+    :'<div class="note">No disks reported. On a Proxmox host this comes from '
+     +'<span class="num">pvesh get /nodes/&lt;node&gt;/disks/list</span>; a virtual '
+     +'disk reports <span class="num">UNKNOWN</span> for SMART, which is normal and '
+     +'is not treated as a fault.</div>';
+}
+
 /* --- applications --- */
 function renderApps(){
   var byName={}; checks().forEach(function(c){byName[c.name]=c});
@@ -1885,7 +1979,7 @@ var NAV=[
  ["Monitoring",[["overview","Overview","home"],["services","Services","pulse"],["timeline","Timeline","clock"]]],
  ["Reliability",[["backups","Backups","disk"],["incidents","Incidents","warn"],
                  ["changes","Jobs &amp; changes","repeat"],["alerting","Alerting","bell"]]],
- ["Estate",[["hardware","Hardware","chip"],["printers","Printers","printer"],["apps","Applications","grid"],["security","Security","shield"]]]
+ ["Estate",[["hardware","Hardware","chip"],["storage","Disks &amp; arrays","db"],["printers","Printers","printer"],["apps","Applications","grid"],["security","Security","shield"]]]
 ];
 var views=[],titles={},current="overview";
 NAV.forEach(function(g){g[1].forEach(function(n){views.push(n[0]);titles[n[0]]=n[1]})});
@@ -1898,6 +1992,8 @@ function counts(){
     incidents:(S.incidents||[]).filter(function(i){return i.status==="open"}).length,
     changes:sm.jobs_late||0,
     hardware:(S.drives||[]).filter(function(d){return d.state!=="ok"}).length,
+    storage:(((S.storage&&S.storage.arrays)||[]).filter(degradedArray).length
+             +((S.storage&&S.storage.disks)||[]).filter(smartBad).length),
     printers:((S.printers&&S.printers.bad)||0)+((S.printers&&S.printers.warn)||0),
     security:(S.inv&&S.inv.credentials||[]).filter(function(c){return c.state==="bad"}).length
   };

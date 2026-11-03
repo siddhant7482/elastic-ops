@@ -24,10 +24,10 @@ the thing that watches the estate should not itself be a dependency problem.
 import os
 import sys
 import threading
-import http.server
 
 import api
 import auth as authmod
+import pool
 from engine import Engine, Notifier, load_config, load_inventory, log
 from store import Portal, Store
 
@@ -191,12 +191,15 @@ def main():
         web_dir = os.path.join(here, web_dir)
 
     handler = api.make_handler(cfg, inventory, store, portal, engine, auth, web_dir)
-    srv = http.server.ThreadingHTTPServer(("0.0.0.0", s["listen_port"]), handler)
-    srv.daemon_threads = True
+    srv = pool.Pool(("0.0.0.0", s["listen_port"]), handler,
+                    workers=s["http_workers"], backlog=s["http_backlog"],
+                    idle=s["http_idle"], shed_after=s["http_shed_after"])
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
     log(f"portal up on :{s['listen_port']} — {len(cfg.get('checks', []))} checks, "
         f"{len(cfg.get('jobs', []))} jobs, {len(inventory.get('hosts', []))} hosts")
+    log(f"http pool: {s['http_workers']} workers, queue {s['http_backlog']}, "
+        f"{s['login_concurrency']} concurrent logins")
     if not auth.any_users():
         log("WARNING: no accounts exist. Create one: "
             f"python3 app.py {cfg_path} --adduser <name>")

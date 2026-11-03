@@ -15,6 +15,7 @@ Exit code 0 means every assertion passed.
 import http.cookiejar
 import json
 import os
+import queue
 import shutil
 import sqlite3
 import socket
@@ -39,6 +40,7 @@ except ModuleNotFoundError:                                          # Python 3.
 import api                                                           # noqa: E402
 import mailer as mailer_mod                                          # noqa: E402
 import auth as authmod                                               # noqa: E402
+import pool                                                          # noqa: E402
 from engine import Engine, Notifier, load_config, load_inventory     # noqa: E402
 from store import Portal, Store                                      # noqa: E402
 from store import now as now_ts                                      # noqa: E402
@@ -144,10 +146,10 @@ def main():
     auth = authmod.Auth(store, s["session_hours"], s["cookie_secure"])
     engine = Engine(cfg, store, Notifier(cfg))
 
-    import http.server
     handler = api.make_handler(cfg, inventory, store, portal, engine, auth, s["web_dir"])
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    srv.daemon_threads = True
+    # The real server, so every assertion below also exercises the worker pool.
+    srv = pool.Pool(("127.0.0.1", port), handler, workers=s["http_workers"],
+                    backlog=s["http_backlog"], idle=s["http_idle"])
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     time.sleep(0.3)
 
@@ -717,6 +719,374 @@ def main():
     check("the page carries an icon and a theme colour",
           b"apple-touch-icon" in body and b"theme-color" in body)
 
+    print("\ndisk and array integrity")
+    sys.path.insert(0, os.path.join(ROOT, "collector"))
+    import post_estate as coll
+
+    # A fixture /sys tree: one clean raid0 and one degraded raid5, which is
+    # exactly the pair this estate actually has.
+    sysroot = os.path.join(tmp, "sysblock")
+    for dev, vals, members in (
+        ("md0", {"level": "raid0", "array_state": "clean", "degraded": "0",
+                 "raid_disks": "2", "sync_action": "idle", "sync_completed": "none"},
+         {"sda": "in_sync", "sdb": "in_sync"}),
+        ("md1", {"level": "raid5", "array_state": "clean", "degraded": "1",
+                 "raid_disks": "3", "sync_action": "idle", "sync_completed": "none"},
+         {"sdc": "in_sync", "sdd": "faulty"}),
+    ):
+        md = os.path.join(sysroot, dev, "md")
+        os.makedirs(md, exist_ok=True)
+        for k, v in vals.items():
+            with open(os.path.join(md, k), "w", encoding="utf-8") as fh:
+                fh.write(v + "\n")
+        for disk, st in members.items():
+            os.makedirs(os.path.join(md, "dev-" + disk), exist_ok=True)
+            with open(os.path.join(md, "dev-" + disk, "state"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(st + "\n")
+    os.makedirs(os.path.join(sysroot, "sda"), exist_ok=True)   # not an array
+
+    arrs = {a["name"]: a for a in coll.md_arrays(sysroot)}
+    check("mdraid parser finds both arrays and skips plain disks",
+          sorted(arrs) == ["md0", "md1"], sorted(arrs))
+    check("raid0 is reported as having no redundancy",
+          arrs["md0"]["redundant"] is False and arrs["md0"]["level"] == "raid0",
+          arrs.get("md0"))
+    check("raid5 is reported as redundant", arrs["md1"]["redundant"] is True)
+    check("a missing disk is counted", arrs["md1"]["degraded"] == 1
+          and arrs["md1"]["disks"] == 3, arrs.get("md1"))
+    check("a faulty member is carried through",
+          any(m["state"] == "faulty" for m in arrs["md1"]["members"]),
+          arrs["md1"]["members"])
+
+    # zpool and pvesh are shelled out to, so stub the one helper they share.
+    real_sh = coll.sh
+    zpool_status = (
+        "  pool: rpool\n state: ONLINE\n  config:\n\n"
+        "\tNAME        STATE     READ WRITE CKSUM\n"
+        "\trpool       ONLINE       0     0     0\n"
+        "\t  mirror-0  ONLINE       0     0     0\n"
+        "\t    sde     ONLINE       0     0     0\n"
+        "\t    sdf     ONLINE       0     0     0\n")
+
+    def fake_sh(*args):
+        if args[:2] == ("zpool", "list"):
+            return "rpool\n"
+        if args[:2] == ("zpool", "status"):
+            return zpool_status
+        if args[0] == "pvesh":
+            return json.dumps([
+                {"devpath": "/dev/sda", "model": "ST4000", "serial": "ZA1",
+                 "size": 4000787030016, "health": "PASSED", "wearout": "N/A",
+                 "type": "hdd", "used": "LVM"},
+                {"devpath": "/dev/sdb", "model": "ST4000", "serial": "ZA2",
+                 "size": 4000787030016, "health": "FAILED!", "wearout": "N/A",
+                 "type": "hdd", "used": "LVM"},
+                {"devpath": "/dev/vda", "model": "QEMU", "serial": "",
+                 "size": 107374182400, "health": "UNKNOWN", "wearout": "N/A",
+                 "type": "hdd", "used": ""}])
+        return ""
+
+    coll.sh = fake_sh
+    try:
+        z = coll.zfs_arrays()
+        dks = coll.disks("proxmox")
+    finally:
+        coll.sh = real_sh
+    check("zpool is parsed with its health", len(z) == 1
+          and z[0]["state"] == "ONLINE", z)
+    check("a mirror vdev is recognised as redundant",
+          z and z[0]["redundant"] is True, z)
+    check("mirror members are collected",
+          z and sorted(m["dev"] for m in z[0]["members"]) == ["sde", "sdf"],
+          z[0]["members"] if z else None)
+    check("pvesh disks are parsed with SMART health", len(dks) == 3
+          and dks[1]["health"] == "FAILED!", dks)
+
+    # Verbatim output from proxmox's P408i-a, including the unclosed bracket
+    # after "Array A (SAS," and the dead disk in bay 2I:3:8. A hand-tidied
+    # fixture would not have caught either.
+    SSACLI = (
+        "\nHPE Smart Array P408i-a SR Gen10 in Slot 0 (Embedded)  (sn: PEYHC0DRHBD7TR)\n"
+        "\n\n   Internal Drive Cage at Port 1I, Box 3, OK\n"
+        "\n   Port Name: 1I (Mixed)\n"
+        "\n   Array A (SAS, \n"
+        "      logicaldrive 1 (1.36 TB, RAID 5, Interim Recovery Mode)\n"
+        "\n      physicaldrive 1I:3:3 (port 1I:box 3:bay 3, SAS HDD, 300 GB, OK)\n"
+        "      physicaldrive 1I:3:4 (port 1I:box 3:bay 4, SAS HDD, 300 GB, OK)\n"
+        "      physicaldrive 2I:3:5 (port 2I:box 3:bay 5, SAS HDD, 300 GB, OK)\n"
+        "      physicaldrive 2I:3:6 (port 2I:box 3:bay 6, SAS HDD, 300 GB, OK)\n"
+        "      physicaldrive 2I:3:7 (port 2I:box 3:bay 7, SAS HDD, 300 GB, OK)\n"
+        "      physicaldrive 2I:3:8 (port 2I:box 3:bay 8, SAS HDD, 0 GB, Failed)\n"
+        "\n\n   Array B (Solid State SATA, Unused Space: 0  MB)\n"
+        "\n      logicaldrive 2 (1.82 TB, RAID 0, OK)\n"
+        "\n      physicaldrive 1I:3:1 (port 1I:box 3:bay 1, SATA SSD, 1 TB, OK)\n"
+        "      physicaldrive 1I:3:2 (port 1I:box 3:bay 2, SATA SSD, 1 TB, OK)\n"
+        "\n   SEP (Vendor ID HPE, Model Smart Adapter) 379  (WWID: 51402EC011947930)\n")
+
+    coll.sh = lambda *a: SSACLI if a[:2] == ("ssacli", "ctrl") else ""
+    try:
+        sa, sd = coll.ssacli_arrays()
+    finally:
+        coll.sh = real_sh
+    byname = {a["name"]: a for a in sa}
+    check("ssacli finds both arrays despite the unclosed bracket",
+          sorted(byname) == ["slot0 Array A", "slot0 Array B"], sorted(byname))
+    check("the raid5 level and state are read",
+          byname["slot0 Array A"]["level"] == "raid5"
+          and byname["slot0 Array A"]["state"] == "Interim Recovery Mode",
+          byname.get("slot0 Array A"))
+    check("Interim Recovery Mode counts as degraded",
+          byname["slot0 Array A"]["degraded"] == 1,
+          byname["slot0 Array A"]["degraded"])
+    check("all six raid5 members are collected",
+          byname["slot0 Array A"]["disks"] == 6,
+          byname["slot0 Array A"]["disks"])
+    check("the failed bay is identified by name",
+          any(m["dev"] == "2I:3:8" and m["state"] == "Failed"
+              for m in byname["slot0 Array A"]["members"]),
+          byname["slot0 Array A"]["members"])
+    check("the raid0 is clean but flagged as having no redundancy",
+          byname["slot0 Array B"]["state"] == "OK"
+          and byname["slot0 Array B"]["redundant"] is False
+          and byname["slot0 Array B"]["degraded"] == 0,
+          byname.get("slot0 Array B"))
+    check("the raid5 is marked redundant by level",
+          byname["slot0 Array A"]["redundant"] is True)
+    check("physical drives come back as disks with their bay as the id",
+          len(sd) == 8 and sd[-1]["dev"] == "1I:3:2", [len(sd), sd[-1]["dev"]])
+    check("drive sizes are parsed to bytes",
+          sd[0]["size_bytes"] == 300 * 10 ** 9, sd[0]["size_bytes"])
+    check("ssd and hdd are told apart",
+          sd[0]["type"] == "hdd" and sd[-1]["type"] == "ssd",
+          [sd[0]["type"], sd[-1]["type"]])
+    check("a missing ssacli is not an error, just no arrays",
+          coll.ssacli_arrays() == ([], []))
+
+    # The dead bay has to become an alert, with the bay named in the detail.
+    store.put_arrays("proxmox-ssa", sa)
+    store.put_disks("proxmox-ssa", sd)
+    sent2, keep_send = [], engine.note.send
+    engine.note.send = lambda *a, **k: sent2.append(a)
+    try:
+        engine.sweep_storage()
+    finally:
+        engine.note.send = keep_send
+    sst = {r["name"]: r for r in store.all_state() if r["kind"] == "storage"}
+    a5 = sst.get("array proxmox-ssa/slot0 Array A", {})
+    check("the degraded raid5 array alerts", a5.get("status") == "down", a5)
+    check("the alert names the dead bay",
+          "2I:3:8" in (a5.get("detail") or ""), a5.get("detail"))
+    check("the alert says the redundancy is spent",
+          "Interim Recovery Mode" in (a5.get("detail") or ""), a5.get("detail"))
+    check("the failed physical drive is its own check, by bay",
+          sst.get("disk proxmox-ssa 2I:3:8", {}).get("status") == "down",
+          sorted(k for k in sst if "proxmox-ssa" in k))
+    check("healthy bays are up, not noise",
+          sst.get("disk proxmox-ssa 1I:3:3", {}).get("status") == "up",
+          sst.get("disk proxmox-ssa 1I:3:3"))
+    check("the production raid0 does not alert for lacking redundancy",
+          sst.get("array proxmox-ssa/slot0 Array B", {}).get("status") == "up",
+          sst.get("array proxmox-ssa/slot0 Array B"))
+    store.put_arrays("proxmox-ssa", [])
+    store.put_disks("proxmox-ssa", [])
+
+    # Round-trip through the store, including the prune.
+    store.put_arrays("proxmox", coll.md_arrays(sysroot) + z)
+    store.put_disks("proxmox", dks)
+    rows = {a["name"]: a for a in store.arrays()}
+    check("arrays store and read back", sorted(rows) == ["md0", "md1", "rpool"],
+          sorted(rows))
+    check("redundancy survives the round trip",
+          rows["md0"]["redundant"] == 0 and rows["md1"]["redundant"] == 1,
+          [rows["md0"]["redundant"], rows["md1"]["redundant"]])
+    check("disks store and read back", len(store.disks()) == 3,
+          len(store.disks()))
+    store.put_arrays("proxmox", [a for a in coll.md_arrays(sysroot)
+                                  if a["name"] == "md0"])
+    check("an array that stops being reported is pruned",
+          [a["name"] for a in store.arrays()] == ["md0"],
+          [a["name"] for a in store.arrays()])
+
+    # The engine turns that into alertable state. This is the whole point:
+    # pools were only ever displayed, never alerted on.
+    store.put_arrays("proxmox", coll.md_arrays(sysroot) + z)
+    sent = []
+    real_send = engine.note.send
+    engine.note.send = lambda *a, **k: sent.append(a)
+    try:
+        engine.sweep_storage()
+    finally:
+        engine.note.send = real_send
+    st = {r["name"]: r for r in store.all_state() if r["kind"] == "storage"}
+    check("the degraded raid5 is down",
+          st.get("array proxmox/md1", {}).get("status") == "down",
+          st.get("array proxmox/md1"))
+    check("the clean raid0 is up, not red for lacking redundancy",
+          st.get("array proxmox/md0", {}).get("status") == "up",
+          st.get("array proxmox/md0"))
+    check("the raid0 still says so in its detail",
+          "no redundancy" in (st.get("array proxmox/md0", {}).get("detail") or ""),
+          st.get("array proxmox/md0", {}).get("detail"))
+    check("the failed disk is down",
+          st.get("disk proxmox /dev/sdb", {}).get("status") == "down",
+          st.get("disk proxmox /dev/sdb"))
+    check("a virtual disk with UNKNOWN SMART is not a check at all",
+          "disk proxmox /dev/vda" not in st, sorted(st))
+    check("the degraded array actually reached the notifier",
+          any("array proxmox/md1" in a[0] for a in sent), sent)
+    check("storage severity defaults to page",
+          s["storage_severity"] == "page", s.get("storage_severity"))
+
+    # Storage checks are discovered at runtime, so the startup sweep that
+    # drops deleted config checks must leave them alone.
+    store.forget_missing(["Zabbix"])
+    still = [r["name"] for r in store.all_state() if r["kind"] == "storage"]
+    check("forget_missing does not wipe discovered storage checks",
+          "array proxmox/md1" in still, still)
+
+    # Round-trip over the real ingest endpoint, which is how this arrives in
+    # production — and the omit rule, which is the contract most likely to be
+    # broken by a future edit.
+    itok = {"X-Ingest-Token": "test-ingest-token"}
+    code, ibody, _ = c.post_json("/api/ingest/host", {
+        "host": "yam",
+        "arrays": [{"name": "md9", "kind": "mdraid", "level": "raid1",
+                    "state": "clean", "degraded": 0, "disks": 2,
+                    "redundant": True, "sync_action": "idle",
+                    "sync_completed": "none",
+                    "members": [{"dev": "sdx", "state": "in_sync"}]}],
+        "disks": [{"dev": "/dev/sdx", "model": "WD", "serial": "W1",
+                   "size_bytes": 1000204886016, "health": "PASSED",
+                   "wearout": 97, "type": "hdd", "used": "ZFS"}],
+    }, itok)
+    ij = json.loads(ibody) if code == 200 else {}
+    check("arrays and disks ingest over the api",
+          code == 200 and ij.get("arrays") == 1 and ij.get("disks") == 1,
+          [code, ij])
+    check("the ingested array is stored against its host",
+          any(a["host"] == "yam" and a["name"] == "md9"
+              for a in store.arrays()), [a["name"] for a in store.arrays()])
+    # A metrics post from an older collector omits the keys entirely. That must
+    # not read as "this host has no disks" and wipe them.
+    c.post_json("/api/ingest/host", {"host": "yam", "mem_total": 1,
+                                     "mem_used": 1}, itok)
+    check("omitting arrays does not wipe the host's arrays",
+          any(a["host"] == "yam" for a in store.arrays()),
+          [a["host"] for a in store.arrays()])
+    check("omitting disks does not wipe the host's disks",
+          any(d["host"] == "yam" for d in store.disks()),
+          [d["host"] for d in store.disks()])
+    # An explicit empty list is a host saying it really has none.
+    c.post_json("/api/ingest/host", {"host": "yam", "arrays": []}, itok)
+    check("an explicit empty list does clear them",
+          not any(a["host"] == "yam" for a in store.arrays()),
+          [a["host"] for a in store.arrays()])
+
+    code, body, _ = c.get("/api/storage")
+    sj = json.loads(body) if code == 200 else {}
+    check("the storage API serves arrays and disks", code == 200
+          and sorted(a["name"] for a in sj.get("arrays", [])) == ["md0", "md1", "rpool"]
+          and "/dev/sdb" in [d["dev"] for d in sj.get("disks", [])],
+          [code, sorted(a["name"] for a in sj.get("arrays", []))])
+    check("members come back as json, not a string",
+          isinstance(sj["arrays"][0]["members"], list), sj["arrays"][0]["members"])
+
+    # The page's loader unpacks Promise.all by index, so adding an endpoint
+    # without updating the index silently shifts every later field.
+    code, page, _ = c.get("/")
+    page = page.decode("utf-8", "replace")
+    check("the page has a disks and arrays section",
+          'id="v-storage"' in page and "function renderStorage(" in page)
+    check("the page fetches the storage endpoint",
+          '"/api/storage"' in page)
+    check("the loader index for storage matches its position",
+          "S.storage=r[14]" in page
+          and page.count("api(\"/api/") == 15, page.count("api(\"/api/"))
+    check("storage is in the nav", '"storage","Disks' in page)
+
+    print("\nconcurrency limits")
+    # The busy reply is assembled from its own body, so the two can never drift.
+    clen = int(pool.BUSY.split(b"Content-Length: ")[1].split(b"\r\n")[0])
+    check("the busy reply declares its real length",
+          clen == len(pool.BUSY_BODY) and pool.BUSY.endswith(pool.BUSY_BODY), clen)
+
+    g = pool.Gate(limit=1, wait=0.05)
+    check("the gate admits up to its limit", g.acquire() is True)
+    check("the gate sheds past its limit", g.acquire() is False)
+    check("the gate counts who was turned away", g.turned_away == 1, g.turned_away)
+    g.release()
+    check("the gate admits again once a slot frees", g.acquire() is True)
+    g.release()
+    gs = g.snapshot()
+    check("the gate reports limit, peak and totals",
+          gs["limit"] == 1 and gs["peak_held"] == 1 and gs["admitted"] == 2
+          and gs["held"] == 0, gs)
+
+    # Pressure is pure arithmetic, so test it without racing a live pool.
+    class _Fake:
+        pass
+
+    f = _Fake()
+    f._q, f.workers = queue.Queue(), 16
+    f.active = 11
+    check("no pressure below three quarters of the workers",
+          pool.Pool.under_pressure(f) is False, f.active)
+    f.active = 12
+    check("pressure at three quarters of the workers",
+          pool.Pool.under_pressure(f) is True, f.active)
+    f.active = 0
+    f._q.put_nowait(("waiting",))
+    check("anything waiting in the queue is pressure",
+          pool.Pool.under_pressure(f) is True)
+
+    # A full queue must answer on the accepting thread and hang up, never
+    # silently drop the connection — "busy" has to be distinguishable from
+    # "down" by whoever is looking.
+    shed = _Fake()
+    shed._q = queue.Queue(maxsize=1)
+    shed._q.put_nowait(("already", "full", 0.0))
+    shed._lock = threading.Lock()
+    shed._stop = threading.Event()
+    shed.shed_after = 0.0       # no patience, so the test does not wait around
+    shed.rejected = shed.peak_queued = 0
+    closed = []
+    shed.shutdown_request = closed.append
+    near, far = socket.socketpair()
+    try:
+        pool.Pool.process_request(shed, near, ("127.0.0.1", 9))
+        far.settimeout(2)
+        got = far.recv(4096)
+    finally:
+        near.close()
+        far.close()
+    check("a full queue answers 503 with Retry-After",
+          got.startswith(b"HTTP/1.1 503") and b"Retry-After: 2" in got, got[:48])
+    check("a refused connection is counted", shed.rejected == 1, shed.rejected)
+    check("a refused connection is closed, not leaked", closed == [near], closed)
+
+    time.sleep(0.1)
+    check("an idle pool reports no pressure", not srv.under_pressure())
+    code, body, _ = c.get("/health")
+    h = json.loads(body)
+    check("health reports the pool without a session",
+          isinstance(h.get("http"), dict)
+          and h["http"]["workers"] == s["http_workers"], h.get("http"))
+    check("health shows traffic served and nothing refused",
+          h["http"]["served"] > 0 and h["http"]["rejected"] == 0, h.get("http"))
+    check("health shows the queue drained", h["http"]["queued"] == 0, h.get("http"))
+
+    code, body, _ = c.get("/api/runtime")
+    r = json.loads(body) if code == 200 else {}
+    check("runtime is served to a session", code == 200, code)
+    check("runtime reports the login gate",
+          r.get("login", {}).get("limit") == s["login_concurrency"], r.get("login"))
+    # Proves the gate is really in the login path, not just constructed.
+    check("the login gate admitted the sign-in above",
+          r.get("login", {}).get("admitted", 0) >= 1, r.get("login"))
+    code, _, _ = Client(base).get("/api/runtime")
+    check("runtime needs a session", code == 401, code)
+
     print("\nsigning out")
     code, _, hdr = c.post_form("/logout", {})
     check("logout redirects and clears the cookie",
@@ -726,6 +1096,7 @@ def main():
     check("a fresh client has no access", code == 401, code)
 
     srv.shutdown()
+    srv.server_close()          # also stops the worker threads
     store.db.close()
     shutil.rmtree(tmp, ignore_errors=True)
 
