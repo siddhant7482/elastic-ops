@@ -29,7 +29,8 @@ import threading
 import api
 import auth as authmod
 import pool
-from engine import Engine, Notifier, load_config, load_inventory, log
+from engine import (Engine, Notifier, load_config, load_inventory, log,
+                    placeholder)
 from store import Portal, Store
 
 
@@ -140,6 +141,16 @@ def matrix_cli(cfg, args):
         import urllib.error
         import urllib.request
         url = s["deadman_url"]
+        if placeholder(url):
+            print(f"deadman_url is still a placeholder: {url}\n")
+            print("  This is the dangerous state: it is not empty, so the "
+                  "startup warning does not fire, and the\n"
+                  "  ping just fails every 60 seconds into the journal.\n")
+            print("  Note .env does NOT overwrite a key that is already set — "
+                  "the FIRST occurrence wins. Appending a\n"
+                  "  second OPS_DEADMAN_URL line does nothing. Edit the "
+                  "existing line in place.")
+            return True
         if not url:
             print("No deadman_url set, so nothing would notice this dying.\n")
             print("  Make a check at healthchecks.io (or any heartbeat "
@@ -265,8 +276,14 @@ def main():
             f"python3 app.py {cfg_path} --adduser <name>")
     if not s["deadman_url"]:
         log("WARNING: no deadman_url set. Nothing will tell you if this dies.")
+    elif placeholder(s["deadman_url"]):
+        log(f"WARNING: deadman_url is still a placeholder ({s['deadman_url']}) "
+            "— the ping fails every 60s and nothing will tell you if this dies.")
     if not s["ingest_token"]:
         log("WARNING: no ingest_token set. Backup and host metrics cannot be posted.")
+    elif placeholder(s["ingest_token"]):
+        log("WARNING: ingest_token is still a placeholder — every collector "
+            "post will be rejected with 401.")
 
     try:
         engine.loop()

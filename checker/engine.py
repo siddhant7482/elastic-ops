@@ -98,6 +98,20 @@ def load_dotenv(*candidates):
     return None
 
 
+def placeholder(value):
+    """True if a setting is still the example value out of .env.example.
+
+    This matters more than it looks. An empty setting trips the startup
+    warning; a placeholder like "https://hc-ping.com/<your-uuid>" reads as
+    configured, so the warning never fires and the failure is silent. Pepper
+    pinged that exact string every 60 seconds for weeks, logging a failure
+    each time, and nothing escalated it — because as far as the code was
+    concerned the dead-man switch was set up.
+    """
+    v = str(value or "")
+    return "<" in v and ">" in v
+
+
 def load_config(path):
     here = os.path.dirname(os.path.abspath(path)) or "."
     load_dotenv(os.path.join(here, ".env"),

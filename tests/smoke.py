@@ -1082,6 +1082,27 @@ def main():
           {"--adduser", "--users", "--counters", "--deadman-test",
            "--mail-test"} <= appmod.FLAGS, sorted(appmod.FLAGS))
 
+    # A placeholder is the dangerous state: non-empty, so the startup warning
+    # never fires, and the ping fails silently every 60s. Pepper sat like this.
+    from engine import placeholder as is_ph
+    check("an example value is recognised as a placeholder",
+          is_ph("https://hc-ping.com/<your-uuid>") is True)
+    check("a real url is not a placeholder",
+          is_ph("https://hc-ping.com/1b2c3d4e-5678-90ab-cdef-1234567890ab")
+          is False)
+    check("empty is not a placeholder", is_ph("") is False and is_ph(None) is False)
+
+    s["deadman_url"] = "https://hc-ping.com/<your-uuid>"
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        appmod.matrix_cli(cfg, ["--deadman-test"])
+    out = buf.getvalue()
+    check("--deadman-test refuses to ping a placeholder",
+          "still a placeholder" in out and "HTTP" not in out, out[:160])
+    check("--deadman-test explains that .env does not overwrite",
+          "FIRST occurrence wins" in out, out[:200])
+    s["deadman_url"] = keep_dm
+
     print("\nconcurrency limits")
     # The busy reply is assembled from its own body, so the two can never drift.
     clen = int(pool.BUSY.split(b"Content-Length: ")[1].split(b"\r\n")[0])
