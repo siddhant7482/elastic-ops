@@ -1080,6 +1080,13 @@ def main():
           real.get("array proxmox/slot0 Array A", {}).get("review")
           and "2I:3:8" in real["array proxmox/slot0 Array A"]["reason"],
           real.get("array proxmox/slot0 Array A"))
+    # An array and its member drives are separate checks, so accepting the
+    # array alone still paged for the dead bay. Both have to be named.
+    check("the failed bay is accepted in its own right",
+          "disk proxmox 2I:3:8" in real, sorted(real))
+    check("accepting one bay does not accept the others",
+          not any(k.startswith("disk proxmox 2I:3:") and k != "disk proxmox 2I:3:8"
+                  for k in real), sorted(real))
 
     print("\ndead-man switch")
     # The only alert path that cannot report its own failure: when it is

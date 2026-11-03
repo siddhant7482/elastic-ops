@@ -492,3 +492,9 @@ check   = "array proxmox/slot0 Array A"
 reason  = "RAID 5 in Interim Recovery Mode, bay 2I:3:8 failed. Holds only VM 1001, which is on the delete list, so the 300 GB drive is deliberately not being replaced. Production is Array B."
 decided = "2026-10-22"
 review  = "2027-01-31"
+
+[[accepted]]
+check   = "disk proxmox 2I:3:8"
+reason  = "The failed member of Array A above, deliberately not being replaced. Note the narrowness: this names ONE bay. A different disk failing in Array A is not covered and will page — Array A is RAID 5 with its redundancy already spent, so a second loss takes the array."
+decided = "2026-10-22"
+review  = "2027-01-31"
