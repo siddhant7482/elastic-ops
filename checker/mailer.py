@@ -246,8 +246,16 @@ def interactive_auth(client_id="", client_secret=""):
     threading.Thread(target=srv.handle_request, daemon=True).start()
 
     url = consent_url(cid, redirect)
-    print(f"\nAdd this EXACT redirect URI to the OAuth client first:\n  {redirect}\n")
-    print(f"Then open:\n  {url}\n")
+    # The port is whatever the OS handed out, and deliberately so: Google
+    # exempts loopback redirects on "Desktop app" clients from port matching,
+    # so there is nothing to register. If this is rejected with
+    # redirect_uri_mismatch, the client is a "Web application" one, which
+    # demands an exact URI and therefore cannot work with an ephemeral port —
+    # recreate it as Desktop app rather than trying to register this.
+    print(f"\nListening for the redirect on {redirect}")
+    print("(Nothing to register — a Desktop app client accepts any loopback "
+          "port.)\n")
+    print(f"Open this to grant consent:\n  {url}\n")
     try:
         webbrowser.open(url)
     except Exception:

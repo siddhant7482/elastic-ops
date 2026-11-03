@@ -87,7 +87,7 @@ ingest_token      = ""
 #   python3 app.py checks.toml --gmail-auth
 #
 # It prints the refresh token. Put that and the client secret in .env.
-gmail_client_id     = ""
+gmail_client_id     = "692105940103-p42f56aq4m4d8hrqdq9a2v7jirredl9t.apps.googleusercontent.com"
 gmail_client_secret = ""        # set via OPS_GMAIL_CLIENT_SECRET
 gmail_refresh_token = ""        # set via OPS_GMAIL_REFRESH_TOKEN
 

@@ -28,6 +28,9 @@ import mailer  # noqa: E402  — path set above
 def main():
     print("Gmail alerting — one-time setup\n")
     print("Before this works you need, in the Google Cloud console:")
+    print("  0. the consent screen set to Internal — on External/Testing,")
+    print("     Google expires the refresh token after 7 days and alerting")
+    print("     dies silently a week after you tick it off")
     print("  1. the Gmail API enabled on the project")
     print("  2. an OAuth client of type 'Desktop app'")
     print("  3. the redirect URI printed below added to that client\n")
