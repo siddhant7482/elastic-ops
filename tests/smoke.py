@@ -1007,6 +1007,80 @@ def main():
           and page.count("api(\"/api/") == 15, page.count("api(\"/api/"))
     check("storage is in the nav", '"storage","Disks' in page)
 
+    print("\naccepted risks")
+    # A standing, written decision to live with something broken. Not a
+    # silence — silences expire by design, so expressing a permanent decision
+    # as one means it quietly comes back.
+    from engine import Engine as EngineCls
+    acc_inv = {"accepted": [
+        {"check": "array test/Array Z",
+         "reason": "holds nothing that matters",
+         "decided": "2026-10-22", "review": "2027-01-31"},
+        {"check": "array test/Array Overdue", "reason": "forgotten",
+         "decided": "2026-01-01", "review": "2026-01-02"},
+    ]}
+    eng2 = EngineCls(cfg, store, Notifier(cfg), acc_inv)
+    check("accepted risks are loaded from inventory",
+          "array test/Array Z" in eng2.accepted, sorted(eng2.accepted))
+    check("an entry with no check name is ignored",
+          len(EngineCls(cfg, store, Notifier(cfg),
+                        {"accepted": [{"reason": "no name"}]}).accepted) == 0)
+    check("no inventory at all is not an error",
+          EngineCls(cfg, store, Notifier(cfg)).accepted == {})
+
+    sentA, keepA = [], eng2.note.send
+    eng2.note.send = lambda *a, **k: sentA.append(a)
+    try:
+        store.register("array test/Array Z", "storage", "Disks & arrays",
+                       "test", "page")
+        eng2.transition("array test/Array Z", "down", "bay 9 failed", "page")
+        # Suppresses the message, never the measurement.
+        rowz = store.get("array test/Array Z") or {}
+        check("an accepted risk still records the transition",
+              rowz.get("status") == "down", rowz.get("status"))
+        check("an accepted risk still writes an event",
+              any(e["name"] == "array test/Array Z"
+                  for e in store.q("SELECT name FROM events")), True)
+        check("an accepted risk is downgraded to quiet",
+              sentA and sentA[0][2] == "quiet", sentA)
+        check("the reason travels with it",
+              sentA and "accepted risk" in (sentA[0][4] or "")
+              and "nothing that matters" in (sentA[0][4] or ""), sentA)
+        check("the review date is named in the hold",
+              sentA and "2027-01-31" in (sentA[0][4] or ""), sentA)
+
+        # Not accepted -> untouched, still pages.
+        store.register("array test/Array Real", "storage", "Disks & arrays",
+                       "test", "page")
+        eng2.transition("array test/Array Real", "down", "bay 1 failed", "page")
+        check("an unaccepted check still pages",
+              any(a[0] == "array test/Array Real" and a[2] == "page"
+                  for a in sentA), sentA)
+    finally:
+        eng2.note.send = keepA
+
+    # An acceptance nobody revisits is a forgotten problem, so a past review
+    # date has to say so out loud rather than keep quietly suppressing.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        EngineCls(cfg, store, Notifier(cfg), acc_inv)
+    warned = buf.getvalue()
+    check("an overdue review warns at startup",
+          "due for review" in warned and "Array Overdue" in warned,
+          warned[:200])
+    check("an in-date acceptance does not warn",
+          "Array Z" not in warned, warned[:200])
+
+    # The real entry ships in inventory.toml so the ssacli deploy does not
+    # page forever about a drive nobody intends to replace.
+    real = {a["check"]: a for a in inventory.get("accepted", [])}
+    check("proxmox Array A is accepted in the shipped inventory",
+          "array proxmox/slot0 Array A" in real, sorted(real))
+    check("the shipped acceptance records why and when to revisit",
+          real.get("array proxmox/slot0 Array A", {}).get("review")
+          and "2I:3:8" in real["array proxmox/slot0 Array A"]["reason"],
+          real.get("array proxmox/slot0 Array A"))
+
     print("\ndead-man switch")
     # The only alert path that cannot report its own failure: when it is
     # misconfigured the symptom is silence, which is also what working looks

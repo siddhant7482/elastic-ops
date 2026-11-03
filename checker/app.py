@@ -255,7 +255,7 @@ def main():
     if authmod.cli(auth, args):     # account commands genuinely need the store
         return
 
-    engine = Engine(cfg, store, Notifier(cfg))
+    engine = Engine(cfg, store, Notifier(cfg), inventory)
 
     web_dir = s["web_dir"]
     if not os.path.isabs(web_dir):

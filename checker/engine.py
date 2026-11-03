@@ -320,8 +320,20 @@ class Notifier:
 
 
 class Engine:
-    def __init__(self, cfg, store, notifier):
+    def __init__(self, cfg, store, notifier, inventory=None):
         self.cfg, self.store, self.note = cfg, store, notifier
+        # Risks someone has looked at and decided to live with. Kept in
+        # inventory.toml rather than as silences, because a silence expires by
+        # design and this is a standing decision — but kept with a review date,
+        # because an acceptance nobody revisits is just a forgotten problem.
+        self.accepted = {a["check"]: a
+                         for a in (inventory or {}).get("accepted", [])
+                         if a.get("check")}
+        today = iso(now())[:10]
+        for name, a in self.accepted.items():
+            if a.get("review") and a["review"] < today:
+                log(f"WARNING: accepted risk '{name}' was due for review on "
+                    f"{a['review']} — it is still suppressing alerts.")
         self.next_run = {}
         self.next_cert = {}
         names = []
@@ -357,6 +369,20 @@ class Engine:
         self.store.event(name, old, new_status, detail)
         if old == "unknown" and new_status == "up":
             return                      # the first successful check is not news
+        # An accepted risk outranks both silences and windows: it is a written
+        # decision, not a temporary hush. proxmox's Array A is degraded on
+        # purpose and will be until VM 1001 is deleted — paging about it would
+        # make the board permanently red, which is how a board stops being
+        # read. Recorded and shown, never sent.
+        acc = self.accepted.get(name)
+        if acc:
+            hold = "accepted risk"
+            if acc.get("reason"):
+                hold += f" — {acc['reason']}"
+            if acc.get("review"):
+                hold += f" (review due {acc['review']})"
+            self.note.send(name, new_status, "quiet", detail, hold)
+            return
         # A silence stops the message, never the measurement: the transition is
         # already recorded above and still shows in the portal.
         sil = self.store.silenced(name)

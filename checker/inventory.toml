@@ -470,3 +470,25 @@ encrypted = "Unknown"
 wipe      = "Not documented"
 note      = "250 GB HDD. Printed 220k pages; also holds scans and the address book."
 state     = "warn"
+
+
+# ---------------------------------------------------------- accepted risks
+#
+# Things that are genuinely broken, that someone has looked at and decided to
+# live with. The portal keeps measuring them and keeps showing them; it just
+# stops paging about them.
+#
+# Why here and not a silence: silences expire by design, so a standing
+# decision expressed as one quietly comes back. Why not simply lowering the
+# severity: that loses the reason. This file is in version control, so a
+# change to an acceptance shows up in a diff and has to be explained.
+#
+# `check` must match the check name exactly, as it appears on the board.
+# `review` is not optional in spirit — an acceptance nobody revisits is just a
+# forgotten problem, so the portal logs a warning once the date has passed.
+
+[[accepted]]
+check   = "array proxmox/slot0 Array A"
+reason  = "RAID 5 in Interim Recovery Mode, bay 2I:3:8 failed. Holds only VM 1001, which is on the delete list, so the 300 GB drive is deliberately not being replaced. Production is Array B."
+decided = "2026-10-22"
+review  = "2027-01-31"
