@@ -384,6 +384,37 @@ textarea{resize:vertical}
   .ilx .ago{display:none}
   .ilbody{padding:2px 14px 18px 14px}
 }
+/* --- the incident record page --- */
+.ibk{appearance:none;border:0;background:none;font:inherit;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;color:var(--ink-3);
+  font-size:12px;font-weight:600;padding:8px 14px 8px 11px;border-radius:999px;
+  box-shadow:var(--r-sm);margin-bottom:20px}
+.ibk:hover{color:var(--ink)} .ibk:active{box-shadow:var(--i-sm)}
+.ihd{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.ihd .iref{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+  color:var(--ink-3);padding-top:7px}
+.ihd h2{font-size:25px;font-weight:800;letter-spacing:-.03em;flex:1;min-width:220px;
+  line-height:1.2;text-wrap:balance}
+.ifacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:1px;background:var(--hair);border-radius:18px;overflow:hidden;margin:20px 0 26px}
+.ifacts div{background:var(--paper);padding:13px 16px}
+.ifacts b{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.ifacts span{font-size:13px;font-weight:600}
+.isec{margin-bottom:24px}
+.isec h3{font-family:var(--mono);font-size:9.5px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.isec p{margin:0;font-size:14px;line-height:1.72;white-space:pre-wrap;max-width:76ch}
+.isec .none{color:var(--ink-3);font-style:italic}
+.ifu{display:flex;align-items:flex-start;gap:11px;padding:11px 0;
+  border-top:1px solid var(--hair);font-size:13px}
+.ifu .fd{width:7px;height:7px;border-radius:50%;flex:none;margin-top:6px}
+.iacts{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px;padding-top:20px;
+  border-top:1px solid var(--hair)}
+@media (max-width:620px){
+  .ihd h2{font-size:21px}
+  .ifacts{grid-template-columns:repeat(2,1fr)}
+}
 .pal{width:100%;max-width:540px;border-radius:26px;background:var(--paper);box-shadow:var(--r-lg);overflow:hidden}
 .pal input{border-radius:0;box-shadow:none;font-size:15px;padding:18px 20px;border-bottom:1px solid var(--hair)}
 .pal input:focus{box-shadow:none}
@@ -802,6 +833,7 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     </form></div>
     <div class="sh"><h2>Follow-ups</h2><span class="lab" id="focount"></span></div>
     <div class="tw mb"><table><thead><tr><th>Action</th><th>From</th><th>Owner</th><th>Due</th><th>State</th><th></th></tr></thead><tbody id="forows"></tbody></table><div id="foempty"></div></div>
+    <div id="ilindex">
     <div class="sh"><h2 id="inccount">Incidents</h2></div>
     <div class="ilbar">
       <input id="ilq" placeholder="Search incidents — title, system, cause, anything" oninput="ilFilter()">
@@ -812,6 +844,8 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
       </div>
     </div>
     <div class="rl" id="inclist"></div>
+    </div>
+    <div id="ildetail" hidden></div>
   </section>
 
   <!-- JOBS & CHANGES -->
@@ -1611,13 +1645,15 @@ function renderIncidents(){
     "Resolving an incident with an answer to “what would have caught this sooner” creates one.");
 
   H("inccount").textContent=inc.length?plural(inc.length,"incident"):"Incidents";
-  renderLedger();
+  // The record page has to survive the thirty-second reload, or it closes
+  // itself under you mid-read.
+  if(ilCurrent) renderIncDetail(); else renderLedger();
 }
 
 /* ---- the incident ledger ----
    Nine full reports stacked up is a wall nobody reads to the bottom of. An
    index you can scan, grouped by month, and you open the one you want. */
-var ilQ="", ilState="all", ilOpen={};
+var ilQ="", ilState="all", ilCurrent=null;
 function ilSet(v){
   ilState=v;
   ["all","open","resolved"].forEach(function(k){
@@ -1625,7 +1661,7 @@ function ilSet(v){
   renderLedger();
 }
 function ilFilter(){ ilQ=(H("ilq").value||"").toLowerCase().trim(); renderLedger() }
-function ilToggle(id){ ilOpen[id]=!ilOpen[id]; renderLedger() }
+
 
 function ilMatch(i){
   if(ilState!=="all" && i.status!==ilState) return false;
@@ -1660,37 +1696,92 @@ function renderLedger(){
       out+='<div class="ilm"><b>'+esc(m)+'</b><span>'+plural(n,"incident")+'</span></div>';
     }
     var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
-    var open=!!ilOpen[i.id];
-    out+='<button class="ilx" onclick="ilToggle('+i.id+')" aria-expanded="'+open+'">'
-      +'<span class="chev">'+(open?"−":"+")+'</span>'
+    out+='<button class="ilx" onclick="openInc('+i.id+')">'
       +'<span class="sv2 '+cls+'" title="'+esc(i.severity)+'"></span>'
       +'<span class="ref">'+esc(i.ref||"")+'</span>'
       +'<span class="ti">'+esc(i.title)+'</span>'
       +pill(i.status==="resolved"?"ok":"warn", i.status==="resolved"?"Resolved":"Open")
-      +'<span class="ago">'+fdate(i.opened_ts)+'</span></button>';
-    if(open) out+='<div class="ilbody">'+incBody(i)+'</div>';
+      +'<span class="ago">'+fdate(i.opened_ts)+'</span>'
+      +'<span class="chev">›</span></button>';
   });
   H("inclist").innerHTML=out;
 }
 
-function incBody(i){
-  function fl(k,v){ return v?'<div class="fl"><b>'+k+'</b><p>'+esc(v)+'</p></div>':"" }
+/* ---- the record page ----
+   An incident is a document, not a disclosure triangle. It gets its own
+   view, its own URL, and a way back. */
+function openInc(id){
+  ilCurrent=id;
+  try{history.replaceState(null,"","#incident-"+id)}catch(e){}
+  renderIncDetail();
+  H("ilindex").hidden=true;
+  H("ildetail").hidden=false;
+  window.scrollTo(0,0);
+}
+function closeInc(){
+  ilCurrent=null;
+  try{history.replaceState(null,"","#incidents")}catch(e){}
+  H("ildetail").hidden=true;
+  H("ilindex").hidden=false;
+  renderLedger();
+  window.scrollTo(0,0);
+}
+
+function renderIncDetail(){
+  var i=incById(ilCurrent);
+  if(!i||!i.id){ closeInc(); return }
+  var fu=(S.followups||[]).filter(function(f){return f.incident_id===i.id});
+  var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
   var len=i.closed_ts?dur(i.closed_ts-i.opened_ts)
     :dur(Math.floor(Date.now()/1000)-i.opened_ts);
-  var meta=[i.system, i.detected?"found by "+i.detected:"",
-            "open for "+len, i.owner].filter(Boolean).join(" · ");
-  return '<div class="fl"><b>At a glance</b><p>'+esc(meta)+'</p></div>'
-    +fl("Impact", i.impact)
-    +fl("Started", i.started&&i.started.replace("T"," "))
-    +fl("What was seen", i.detail)
-    +fl("Root cause", i.root_cause)
-    +fl("Actions taken", i.resolution)
-    +fl("Preventive action", i.prevention)
-    +'<p>'+(i.status==="open"
-        ?'<button class="btn" onclick="event.stopPropagation();resolveInc('+i.id+')">Resolve</button> '
-        :'<button class="btn" onclick="event.stopPropagation();editResolution('+i.id+')">Edit resolution</button> ')
-      +'<button class="btn" onclick="event.stopPropagation();editInc('+i.id+')">Edit</button></p>';
+
+  function fact(k,v){
+    return '<div><b>'+esc(k)+'</b><span>'+esc(v||"—")+'</span></div>' }
+  function sec(k,v){
+    return '<div class="isec"><h3>'+esc(k)+'</h3>'
+      +(v?'<p>'+esc(v)+'</p>':'<p class="none">Not recorded.</p>')+'</div>' }
+
+  H("ildetail").innerHTML=
+     '<button class="ibk" onclick="closeInc()">‹ All incidents</button>'
+    +'<div class="ihd"><span class="iref">'+esc(i.ref||"")+'</span>'
+    +'<h2>'+esc(i.title)+'</h2>'
+    +pill(i.status==="resolved"?"ok":"warn",
+          i.status==="resolved"?"Resolved":"Open")+'</div>'
+    +'<div class="ifacts">'
+      +fact("Severity", i.severity)
+      +fact("System", i.system)
+      +fact("How it came to light", i.detected)
+      +fact("Started", i.started?i.started.replace("T"," "):"Not known")
+      +fact("Opened", fdate(i.opened_ts))
+      +fact(i.closed_ts?"Resolved":"Open for",
+            i.closed_ts?fdate(i.closed_ts):len)
+      +(i.closed_ts?fact("Time to resolve", len):"")
+      +fact("Owner", i.owner)
+    +'</div>'
+    +sec("Impact", i.impact)
+    +sec("What was seen", i.detail)
+    +sec("Root cause", i.root_cause)
+    +sec("Actions taken", i.resolution)
+    +sec("Preventive action", i.prevention)
+    +'<div class="isec"><h3>Follow-ups'+(fu.length?" ("+fu.length+")":"")+'</h3>'
+      +(fu.length?fu.map(function(f){
+          var done=f.status==="done";
+          return '<div class="ifu"><span class="fd '
+            +(done?"d-ok":"d-warn")+'"></span><span>'+esc(f.action)
+            +'<br><span class="lab">'+(done?"done":"open")
+            +(f.owner?" · "+esc(f.owner):"")
+            +(f.due?" · due "+esc(f.due):"")+'</span></span></div>'
+        }).join("")
+        :'<p class="none">None raised.</p>')
+    +'</div>'
+    +'<div class="iacts">'
+      +(i.status==="open"
+        ?'<button class="btn go" onclick="resolveInc('+i.id+')">Resolve</button>'
+        :'<button class="btn" onclick="editResolution('+i.id+')">Edit resolution</button>')
+      +'<button class="btn" onclick="editInc('+i.id+');closeInc()">Edit details</button>'
+    +'</div>';
 }
+
 /* --- jobs & changes --- */
 function renderJobs(){
   var j=jobs(), late=j.filter(function(x){return x.status==="down"});
@@ -2534,6 +2625,12 @@ function go(v){
   });
   H("ptitle").innerHTML=titles[v];
   H("pagename2").innerHTML=titles[v];
+  // Navigating away drops out of a record, so coming back lands on the list.
+  if(v!=="incidents" && ilCurrent){
+    ilCurrent=null;
+    H("ildetail").hidden=true;
+    H("ilindex").hidden=false;
+  }
   try{history.replaceState(null,"","#"+v)}catch(e){}
   sideClose(); window.scrollTo(0,0);
 }
@@ -2628,9 +2725,16 @@ function toast(m){
 /* ============================================================ boot */
 H("ricon").innerHTML=svg("refresh");
 var h0=(location.hash||"").replace("#","");
-if(views.indexOf(h0)>-1)current=h0;
+// #incident-12 opens that record straight away, so a link to one is a link
+// to the thing itself rather than to a list someone then has to search.
+var h0inc=/^incident-(\d+)$/.exec(h0);
+if(h0inc){ current="incidents"; ilCurrent=parseInt(h0inc[1],10) }
+else if(views.indexOf(h0)>-1) current=h0;
 
-load().then(function(){go(current)}).catch(function(err){
+load().then(function(){
+  go(current);
+  if(ilCurrent) openInc(ilCurrent);
+}).catch(function(err){
   H("boot").innerHTML='<div class="mt"><b>Could not load</b>'+esc(err.message)+'</div>';
 });
 setInterval(function(){if(!palOpen)load().catch(function(){})},30000);

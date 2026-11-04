@@ -1137,8 +1137,21 @@ def main():
     # Nine full reports stacked up is a wall nobody reads to the bottom of.
     check("incidents render as a scannable index", "function renderLedger()" in page)
     check("the old stacked-card renderer is gone", "function incHTML" not in page)
-    check("rows expand to the full record",
-          "function incBody(i)" in page and "function ilToggle(id)" in page)
+    check("rows open a record page, not an accordion",
+          "function openInc(id)" in page and "function renderIncDetail()" in page
+          and "function incBody" not in page and "ilToggle" not in page, True)
+    check("the record page has a way back", "function closeInc()" in page
+          and "All incidents" in page)
+    check("a record has its own URL", "#incident-" in page
+          and "/^incident-(" in page)
+    check("the record survives the 30s reload",
+          "if(ilCurrent) renderIncDetail(); else renderLedger();" in page)
+    check("leaving incidents drops out of the record",
+          'if(v!=="incidents" && ilCurrent)' in page)
+    check("the record shows time to resolve, not just dates",
+          '"Time to resolve"' in page)
+    check("the record lists that incident's follow-ups",
+          "f.incident_id===i.id" in page)
     check("there is a search box", 'id="ilq"' in page and "function ilFilter()" in page)
     check("search covers the cause and the fix, not just the title",
           "i.root_cause" in page.split("function ilMatch")[1].split("}")[0]
@@ -1150,9 +1163,10 @@ def main():
           "b.opened_ts-a.opened_ts" in page)
     check("an empty search says so rather than showing nothing",
           "Nothing matches" in page)
-    check("expanded rows label every field",
-          'fl("Root cause"' in page and 'fl("Actions taken"' in page
-          and 'fl("Preventive action"' in page, True)
+    check("the record labels every field",
+          'sec("Root cause"' in page and 'sec("Actions taken"' in page
+          and 'sec("Preventive action"' in page and 'sec("Impact"' in page, True)
+    check("empty fields say so rather than vanishing", "Not recorded." in page)
 
     print("\nproper dialogs")
     code, page, _ = c.get("/")
@@ -1181,7 +1195,7 @@ def main():
     check("remaining deletes name what is going",
           'title:"Delete follow-up"' in page
           and 'title:"Delete change record"' in page, True)
-    body_src = page.split("function incBody")[1][:1200]
+    body_src = page.split("function renderIncDetail")[1][:1800]
     check("incidents have no delete at all",
           "function delInc" not in page and "delete" not in body_src.lower(),
           True)
