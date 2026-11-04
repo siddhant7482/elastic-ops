@@ -18,6 +18,7 @@ import io
 import json
 import os
 import queue
+import re
 import shutil
 import sqlite3
 import socket
@@ -38,6 +39,7 @@ try:
 except ModuleNotFoundError:                                          # Python 3.10
     import tomli
     sys.modules["tomllib"] = tomli
+    tomllib = tomli          # bind the name too, not just the module entry
 
 import api                                                           # noqa: E402
 import mailer as mailer_mod                                          # noqa: E402
@@ -1006,6 +1008,47 @@ def main():
           "S.storage=r[14]" in page
           and page.count("api(\"/api/") == 15, page.count("api(\"/api/"))
     check("storage is in the nav", '"storage","Disks' in page)
+
+    print("\nestate launcher")
+    code, page, _ = c.get("/")
+    page = page.decode("utf-8", "replace")
+    check("the launcher section exists", 'id="v-estate"' in page)
+    check("the launcher is rendered on load", "renderEstate()" in page)
+    check("the launcher is the landing view", 'current="estate"' in page)
+    check("the launcher is in the nav", '"estate","Estate"' in page)
+    check("overview is still reachable", '"overview","Overview"' in page)
+    check("the LED board is present",
+          'id="led-msg"' in page and "ALL SYSTEMS NOMINAL" in page)
+
+    apps = inventory.get("apps", [])
+    check("devices and consoles were added to the launcher",
+          len([a for a in apps if a.get("group") == "Devices"]) == 6,
+          len([a for a in apps if a.get("group") == "Devices"]))
+    check("every app has a name and a group",
+          all(a.get("name") and a.get("group") for a in apps))
+
+    # A tile whose icon does not exist silently falls back to a generic box,
+    # and a tile pointing at a check that does not exist shows "unknown"
+    # forever. Both are invisible in the browser and obvious from here.
+    icons = set(re.findall(r"^\s*([a-z]+):", re.search(
+        r"var ICON=\{(.*?)\n\};", page, re.S).group(1), re.M))
+    bad_icon = [a["name"] for a in apps if a.get("icon") and a["icon"] not in icons]
+    check("every tile icon exists in the icon set", not bad_icon, bad_icon)
+
+    # Against the SHIPPED checks.toml, not the cut-down one this test runs on
+    # — the pairing that matters is the one that goes to pepper.
+    with open(os.path.join(ROOT, "checker", "checks.toml"), "rb") as fh:
+        shipped = tomllib.load(fh)
+    shipped_names = {x["name"] for x in shipped.get("checks", [])}
+    shipped_names |= {x["name"] for x in shipped.get("jobs", [])}
+    bad_check = [f"{a['name']} -> {a['check']}" for a in apps
+                 if a.get("check") and a["check"] not in shipped_names]
+    check("every tile's check refers to a real check", not bad_check, bad_check)
+
+    linked = [a for a in apps if a.get("check")]
+    check("most tiles carry a live status", len(linked) >= 12, len(linked))
+    check("device tiles are honest about not being monitored",
+          all(not a.get("check") for a in apps if a.get("group") == "Devices"))
 
     print("\nediting and deleting what you wrote")
     # Create-and-close was the whole surface: a typo in a title was permanent,

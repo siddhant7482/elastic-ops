@@ -188,7 +188,9 @@ group = "Business"
 url = "http://10.10.1.102:3000"
 target = "bigcapital-prod:3000"
 icon = "chart"
-check = "Bigcapital"
+# check = "Bigcapital"   — the check is parked in checks.toml (26 Oct, owner's
+# instruction). Left commented so the tile reads "not monitored" rather
+# than "unknown"; uncomment both together if it is ever turned back on.
 
 [[apps]]
 name = "Odoo"
@@ -196,7 +198,9 @@ group = "Business"
 url = "http://10.10.1.103:8069"
 target = "10.10.1.103:8069"
 icon = "cart"
-check = "Odoo"
+# check = "Odoo"   — the check is parked in checks.toml (26 Oct, owner's
+# instruction). Left commented so the tile reads "not monitored" rather
+# than "unknown"; uncomment both together if it is ever turned back on.
 
 [[apps]]
 name = "cinnamon"
@@ -471,6 +475,46 @@ wipe      = "Not documented"
 note      = "250 GB HDD. Printed 220k pages; also holds scans and the address book."
 state     = "warn"
 
+
+# Devices and consoles — no check attached, so the tiles show "not monitored"
+# rather than pretending. They are here because they are things you open, and
+# hunting for the iLO address at 2am is its own small outage.
+
+[[apps]]
+name = "iLO — proxmox"
+group = "Devices"
+url = "https://10.10.1.102"
+icon = "server"
+
+[[apps]]
+name = "iLO — yam"
+group = "Devices"
+url = "https://10.10.1.101"
+icon = "server"
+
+[[apps]]
+name = "UniFi (UDM)"
+group = "Devices"
+url = "https://192.168.42.254"
+icon = "globe"
+
+[[apps]]
+name = "Brother DCP-L2660DW"
+group = "Devices"
+url = "http://192.168.42.161"
+icon = "printer"
+
+[[apps]]
+name = "Konica bizhub C368"
+group = "Devices"
+url = "http://192.168.42.177"
+icon = "printer"
+
+[[apps]]
+name = "Canon"
+group = "Devices"
+url = "http://192.168.42.203"
+icon = "printer"
 
 # ---------------------------------------------------------- accepted risks
 #

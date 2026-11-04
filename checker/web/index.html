@@ -99,6 +99,67 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
   max-width:1900px;margin-inline:auto;width:100%}
 
 /* ---------- surfaces ---------- */
+/* --- the LED board -------------------------------------------------
+   A dark panel pressed into the console. Neumorphism is light sculpted by
+   shadow, so an inset recess is the honest way to read as a screen set into
+   the surface rather than a dark box dropped on top of it. */
+.led{border-radius:22px;padding:5px;box-shadow:var(--i-md);background:var(--paper)}
+.ledin{border-radius:18px;background:#121A16;padding:18px 22px;overflow:hidden;
+  display:flex;align-items:center;gap:22px;min-height:96px;position:relative;
+  /* the faint scanline is the whole trick: without it this is just a dark div */
+  background-image:repeating-linear-gradient(0deg,
+    rgba(255,255,255,.035) 0 1px, transparent 1px 3px)}
+.ledin::after{content:"";position:absolute;inset:0;pointer-events:none;
+  border-radius:18px;box-shadow:inset 0 0 40px rgba(0,0,0,.55)}
+.ledst{flex:none;display:flex;flex-direction:column;gap:5px;
+  padding-right:22px;border-right:1px solid rgba(255,255,255,.09)}
+.ledbig{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ledlab{font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:#6E8C7C}
+.ledmsg{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+.ledrow{display:flex;align-items:center;gap:11px;font-family:var(--mono);
+  font-size:12.5px;color:#BFD6C8;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.ledrow b{font-weight:600;color:#EAF6EF}
+.ledrow .t{margin-left:auto;flex:none;font-size:10.5px;color:#6E8C7C}
+.leddot{width:8px;height:8px;border-radius:50%;flex:none}
+.d-ok{background:#35D39A;box-shadow:0 0 9px #35D39A}
+.d-bad{background:#FF5C7A;box-shadow:0 0 9px #FF5C7A;animation:ledpulse 1.4s infinite}
+.d-warn{background:#F0B429;box-shadow:0 0 9px #F0B429}
+.d-dim{background:#44584D}
+@keyframes ledpulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ledok{font-family:var(--mono);font-size:15px;color:#35D39A;letter-spacing:.07em}
+@media (prefers-reduced-motion:reduce){.d-bad{animation:none}}
+
+/* --- launcher tiles --- */
+.tiles{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.tile{display:flex;flex-direction:column;gap:11px;padding:17px 18px 15px;
+  border-radius:20px;box-shadow:var(--r-md);background:var(--paper);
+  color:inherit;text-decoration:none;transition:box-shadow .16s, transform .16s}
+.tile:hover{box-shadow:var(--r-lg);transform:translateY(-2px)}
+.tile:active{box-shadow:var(--i-sm);transform:none}
+.tile .ic{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;
+  box-shadow:var(--r-sm)}
+.tile .ic svg{width:20px;height:20px;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+.tile b{font-size:13.5px;font-weight:700;letter-spacing:-.02em}
+.tile .ad{font-family:var(--mono);font-size:10px;color:var(--ink-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .st{display:flex;align-items:center;gap:7px;font-family:var(--mono);
+  font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.tile .st i{width:7px;height:7px;border-radius:50%;flex:none}
+.g-biz .ic{background:var(--ok-bg)}      .g-biz .ic svg{stroke:var(--forest)}
+.g-inf .ic{background:#DCE4F2}           .g-inf .ic svg{stroke:#2E4A7E}
+.g-int .ic{background:#EDE2F2}           .g-int .ic svg{stroke:#6B3E85}
+.g-dev .ic{background:var(--warn-bg)}    .g-dev .ic svg{stroke:#8A6410}
+@media (max-width:600px){
+  .tiles{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:12px}
+  .ledin{flex-direction:column;align-items:stretch;gap:14px;padding:16px 18px}
+  .ledst{border-right:0;padding-right:0;flex-direction:row;align-items:baseline;gap:12px}
+  .ledbig{font-size:24px}
+}
+
 .card{border-radius:24px;box-shadow:var(--r-lg)}
 .grid{display:grid;gap:18px}
 .g2{grid-template-columns:1.25fr .75fr}
@@ -548,7 +609,19 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
   <main class="wrap">
 
   <!-- OVERVIEW -->
-  <section id="v-overview">
+  <!-- ESTATE — the launcher, and the landing page -->
+  <section id="v-estate" hidden>
+    <div class="led mb"><div class="ledin">
+      <div class="ledst">
+        <div class="ledbig" id="led-n">··</div>
+        <div class="ledlab" id="led-nl">checking</div>
+      </div>
+      <div class="ledmsg" id="led-msg"></div>
+    </div></div>
+    <div id="tilegroups"></div>
+  </section>
+
+  <section id="v-overview" hidden>
     <div class="grid g2 mb">
       <div class="hero">
         <div class="lab">Services answering, right now</div>
@@ -1080,11 +1153,84 @@ function renderAll(){
   H("acctrole").textContent=u.role;
   H("meav").textContent=(u.display||u.username).split(/\s+/).map(function(w){return w[0]})
     .join("").slice(0,2).toUpperCase();
-  renderNav(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
+  renderNav(); renderEstate(); renderOverview(); renderServices(); renderTimeline(); renderBackups();
   renderIncidents(); renderJobs(); renderAlerting(); renderHardware(); renderApps();
   renderSecurity(); renderStorage(); renderPrinters(); renderDataAtRest(); buildPalette();
   labelTables();
   H("boot").hidden=true;
+}
+
+/* --- estate launcher ---
+   The tiles are the point: inventory already pairs every app with the check
+   that watches it, so each one can say whether the thing is up before you
+   click it. A bookmark page cannot do that. */
+var GCLS={Business:"g-biz", Infrastructure:"g-inf", Internal:"g-int", Devices:"g-dev"};
+
+function renderEstate(){
+  var byName={}; (S.status.items||[]).forEach(function(r){byName[r.name]=r});
+  var apps=(S.inv&&S.inv.apps)||[];
+  var groups=[],seen={};
+  apps.forEach(function(a){
+    var g=a.group||"Other";
+    if(!seen[g]){seen[g]={name:g,items:[]};groups.push(seen[g])}
+    seen[g].items.push(a);
+  });
+
+  H("tilegroups").innerHTML=groups.map(function(g){
+    return '<div class="sh"><h2>'+esc(g.name)+'</h2></div><div class="tiles mb">'
+      +g.items.map(function(a){
+        var chk=byName[a.check]||{}, st=a.check?stOf(chk):"dim";
+        var label=!a.check?"not monitored"
+          :chk.status==="up"?"up"
+          :chk.status==="down"?"down"
+          :"unknown";
+        var href=a.url||"";
+        var open=href?' href="'+esc(href)+'" target="_blank" rel="noopener"':"";
+        var tag=href?"a":"div";
+        return '<'+tag+' class="tile '+(GCLS[g.name]||"g-inf")+'"'+open+'>'
+          +'<span class="ic">'+svg(a.icon||"box")+'</span>'
+          +'<b>'+esc(a.name)+'</b>'
+          +'<span class="ad">'+esc((href||a.target||"").replace(/^https?:\/\//,""))+'</span>'
+          +'<span class="st"><i class="d-'+st+'"></i>'+label+'</span>'
+          +'</'+tag+'>';
+      }).join("")+'</div>';
+  }).join("");
+
+  ledBoard(byName);
+}
+
+/* The board shows what is wrong, or says plainly that nothing is. Anything
+   that scrolls or cycles would mean waiting to find out — so everything that
+   matters is on screen at once, and the count carries the weight. */
+function ledBoard(byName){
+  var items=S.status.items||[];
+  var down=items.filter(function(r){return r.status==="down"});
+  var sil=(S.sil||[]).length;
+  H("led-n").textContent=down.length?String(down.length):"OK";
+  H("led-n").style.color=down.length?"#FF5C7A":"#35D39A";
+  H("led-nl").textContent=down.length?plural(down.length,"alert"):"all clear";
+
+  if(!down.length){
+    H("led-msg").innerHTML='<div class="ledok">ALL SYSTEMS NOMINAL</div>'
+      +'<div class="ledrow"><span class="leddot d-ok"></span>'
+      +esc(plural(items.length,"check"))+' reporting'
+      +(sil?' · '+esc(plural(sil,"silence"))+' active':"")
+      +'<span class="t">'+esc(nowClock())+'</span></div>';
+    return;
+  }
+  // Four at most: a board nobody can read at a glance is just a log.
+  H("led-msg").innerHTML=down.slice(0,4).map(function(r){
+    return '<div class="ledrow"><span class="leddot d-bad"></span>'
+      +'<b>'+esc(r.name)+'</b> '+esc(r.detail||"not answering")
+      +'<span class="t">'+esc(r.since?dur(Math.floor(Date.now()/1000)-r.since):"")+'</span>'
+      +'</div>';
+  }).join("")+(down.length>4
+    ? '<div class="ledrow"><span class="leddot d-dim"></span>and '
+      +(down.length-4)+' more</div>' : "");
+}
+function nowClock(){
+  var d=new Date();
+  return ("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
 }
 
 /* --- overview --- */
@@ -2065,12 +2211,12 @@ function refresh(){return load()}
 
 /* ============================================================ shell */
 var NAV=[
- ["Monitoring",[["overview","Overview","home"],["services","Services","pulse"],["timeline","Timeline","clock"]]],
+ ["Monitoring",[["estate","Estate","grid"],["overview","Overview","home"],["services","Services","pulse"],["timeline","Timeline","clock"]]],
  ["Reliability",[["backups","Backups","disk"],["incidents","Incidents","warn"],
                  ["changes","Jobs &amp; changes","repeat"],["alerting","Alerting","bell"]]],
  ["Estate",[["hardware","Hardware","chip"],["storage","Disks &amp; arrays","db"],["printers","Printers","printer"],["apps","Applications","grid"],["security","Security","shield"]]]
 ];
-var views=[],titles={},current="overview";
+var views=[],titles={},current="estate";
 NAV.forEach(function(g){g[1].forEach(function(n){views.push(n[0]);titles[n[0]]=n[1]})});
 
 function counts(){
