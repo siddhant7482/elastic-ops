@@ -794,6 +794,7 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
 
   <!-- INCIDENTS -->
   <section id="v-incidents" hidden>
+    <div id="ilmain">
     <div class="grid g2 mb">
       <div class="ch">
         <div class="chd"><div><h3>Incidents by month</h3><p>Counted when opened, stacked by severity</p></div>
@@ -833,17 +834,23 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     </form></div>
     <div class="sh"><h2>Follow-ups</h2><span class="lab" id="focount"></span></div>
     <div class="tw mb"><table><thead><tr><th>Action</th><th>From</th><th>Owner</th><th>Due</th><th>State</th><th></th></tr></thead><tbody id="forows"></tbody></table><div id="foempty"></div></div>
-    <div id="ilindex">
-    <div class="sh"><h2 id="inccount">Incidents</h2></div>
-    <div class="ilbar">
-      <input id="ilq" placeholder="Search incidents — title, system, cause, anything" oninput="ilFilter()">
-      <div class="ilseg" role="group" aria-label="Filter by state">
-        <button id="ilf-all" aria-pressed="true" onclick="ilSet('all')">All</button>
-        <button id="ilf-open" aria-pressed="false" onclick="ilSet('open')">Open</button>
-        <button id="ilf-resolved" aria-pressed="false" onclick="ilSet('resolved')">Resolved</button>
-      </div>
+    <div class="sh"><h2>Recent incidents</h2><span class="lab" id="recnote"></span></div>
+    <div class="rl mb" id="recentlist"></div>
+    <div><button class="btn go" onclick="openLog()" id="tolog">Open the incident log</button></div>
     </div>
-    <div class="rl" id="inclist"></div>
+
+    <div id="illog" hidden>
+      <button class="ibk" onclick="closeLog()">‹ Back to incidents</button>
+      <div class="sh"><h2 id="inccount">Incident log</h2></div>
+      <div class="ilbar">
+        <input id="ilq" placeholder="Search — title, system, cause, the fix, anything" oninput="ilFilter()">
+        <div class="ilseg" role="group" aria-label="Filter by state">
+          <button id="ilf-all" aria-pressed="true" onclick="ilSet('all')">All</button>
+          <button id="ilf-open" aria-pressed="false" onclick="ilSet('open')">Open</button>
+          <button id="ilf-resolved" aria-pressed="false" onclick="ilSet('resolved')">Resolved</button>
+        </div>
+      </div>
+      <div class="rl" id="inclist"></div>
     </div>
     <div id="ildetail" hidden></div>
   </section>
@@ -1645,15 +1652,59 @@ function renderIncidents(){
     "Resolving an incident with an answer to “what would have caught this sooner” creates one.");
 
   H("inccount").textContent=inc.length?plural(inc.length,"incident"):"Incidents";
-  // The record page has to survive the thirty-second reload, or it closes
-  // itself under you mid-read.
-  if(ilCurrent) renderIncDetail(); else renderLedger();
+  // Each pane has to survive the thirty-second reload, or the page you are
+  // reading closes itself under you.
+  if(ilView==="detail" && ilCurrent) renderIncDetail();
+  else if(ilView==="log") renderLedger();
+  else renderRecent();
+}
+
+function renderRecent(){
+  var all=(S.incidents||[]).slice().sort(function(a,b){return b.opened_ts-a.opened_ts});
+  var five=all.slice(0,5);
+  H("recnote").textContent = all.length>5
+    ? "5 of "+all.length : (all.length?plural(all.length,"in total"):"");
+  H("tolog").textContent = all.length
+    ? "Open the incident log — "+plural(all.length,"record")
+    : "Open the incident log";
+  H("recentlist").innerHTML = five.length
+    ? five.map(function(i){ return ilRow(i,"main") }).join("")
+    : mt("No incidents recorded","Report the first one above.");
+}
+
+/* One row, used by the recent five and by the log. */
+function ilRow(i, from){
+  var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
+  return '<button class="ilx" onclick="openInc('+i.id+',''+from+'')">'
+    +'<span class="sv2 '+cls+'" title="'+esc(i.severity)+'"></span>'
+    +'<span class="ref">'+esc(i.ref||"")+'</span>'
+    +'<span class="ti">'+esc(i.title)+'</span>'
+    +pill(i.status==="resolved"?"ok":"warn", i.status==="resolved"?"Resolved":"Open")
+    +'<span class="ago">'+fdate(i.opened_ts)+'</span>'
+    +'<span class="chev">›</span></button>';
 }
 
 /* ---- the incident ledger ----
    Nine full reports stacked up is a wall nobody reads to the bottom of. An
    index you can scan, grouped by month, and you open the one you want. */
-var ilQ="", ilState="all", ilCurrent=null;
+var ilQ="", ilState="all", ilCurrent=null, ilView="main";
+/* main -> log -> detail. The log is reached only from the incidents page,
+   so the nav stays one line per place rather than two for the same thing. */
+function ilShow(v){
+  ilView=v;
+  H("ilmain").hidden   = v!=="main";
+  H("illog").hidden    = v!=="log";
+  H("ildetail").hidden = v!=="detail";
+  window.scrollTo(0,0);
+}
+function openLog(){
+  ilShow("log"); renderLedger();
+  try{history.replaceState(null,"","#incident-log")}catch(e){}
+}
+function closeLog(){
+  ilCurrent=null; ilShow("main"); renderRecent();
+  try{history.replaceState(null,"","#incidents")}catch(e){}
+}
 function ilSet(v){
   ilState=v;
   ["all","open","resolved"].forEach(function(k){
@@ -1695,14 +1746,7 @@ function renderLedger(){
         return MON[y.getMonth()]+" "+y.getFullYear()===m}).length;
       out+='<div class="ilm"><b>'+esc(m)+'</b><span>'+plural(n,"incident")+'</span></div>';
     }
-    var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
-    out+='<button class="ilx" onclick="openInc('+i.id+')">'
-      +'<span class="sv2 '+cls+'" title="'+esc(i.severity)+'"></span>'
-      +'<span class="ref">'+esc(i.ref||"")+'</span>'
-      +'<span class="ti">'+esc(i.title)+'</span>'
-      +pill(i.status==="resolved"?"ok":"warn", i.status==="resolved"?"Resolved":"Open")
-      +'<span class="ago">'+fdate(i.opened_ts)+'</span>'
-      +'<span class="chev">›</span></button>';
+    out+=ilRow(i,"log");
   });
   H("inclist").innerHTML=out;
 }
@@ -1710,21 +1754,17 @@ function renderLedger(){
 /* ---- the record page ----
    An incident is a document, not a disclosure triangle. It gets its own
    view, its own URL, and a way back. */
-function openInc(id){
+var ilFrom="main";
+function openInc(id, from){
+  ilFrom = from || ilView;
   ilCurrent=id;
   try{history.replaceState(null,"","#incident-"+id)}catch(e){}
   renderIncDetail();
-  H("ilindex").hidden=true;
-  H("ildetail").hidden=false;
-  window.scrollTo(0,0);
+  ilShow("detail");
 }
 function closeInc(){
   ilCurrent=null;
-  try{history.replaceState(null,"","#incidents")}catch(e){}
-  H("ildetail").hidden=true;
-  H("ilindex").hidden=false;
-  renderLedger();
-  window.scrollTo(0,0);
+  if(ilFrom==="log"){ openLog() } else { closeLog() }
 }
 
 function renderIncDetail(){
@@ -1742,7 +1782,8 @@ function renderIncDetail(){
       +(v?'<p>'+esc(v)+'</p>':'<p class="none">Not recorded.</p>')+'</div>' }
 
   H("ildetail").innerHTML=
-     '<button class="ibk" onclick="closeInc()">‹ All incidents</button>'
+     '<button class="ibk" onclick="closeInc()">‹ '
+    +(ilFrom==="log"?"Incident log":"Incidents")+'</button>'
     +'<div class="ihd"><span class="iref">'+esc(i.ref||"")+'</span>'
     +'<h2>'+esc(i.title)+'</h2>'
     +pill(i.status==="resolved"?"ok":"warn",
@@ -2625,12 +2666,9 @@ function go(v){
   });
   H("ptitle").innerHTML=titles[v];
   H("pagename2").innerHTML=titles[v];
-  // Navigating away drops out of a record, so coming back lands on the list.
-  if(v!=="incidents" && ilCurrent){
-    ilCurrent=null;
-    H("ildetail").hidden=true;
-    H("ilindex").hidden=false;
-  }
+  // Navigating away resets the incidents section, so coming back lands on
+  // its front page rather than whatever record was last open.
+  if(v!=="incidents" && ilView!=="main"){ ilCurrent=null; ilShow("main") }
   try{history.replaceState(null,"","#"+v)}catch(e){}
   sideClose(); window.scrollTo(0,0);
 }
@@ -2727,13 +2765,15 @@ H("ricon").innerHTML=svg("refresh");
 var h0=(location.hash||"").replace("#","");
 // #incident-12 opens that record straight away, so a link to one is a link
 // to the thing itself rather than to a list someone then has to search.
-var h0inc=/^incident-(\d+)$/.exec(h0);
+var h0inc=/^incident-(\d+)$/.exec(h0), h0log=(h0==="incident-log");
 if(h0inc){ current="incidents"; ilCurrent=parseInt(h0inc[1],10) }
+else if(h0log){ current="incidents" }
 else if(views.indexOf(h0)>-1) current=h0;
 
 load().then(function(){
   go(current);
-  if(ilCurrent) openInc(ilCurrent);
+  if(ilCurrent) openInc(ilCurrent,"log");
+  else if(h0log) openLog();
 }).catch(function(err){
   H("boot").innerHTML='<div class="mt"><b>Could not load</b>'+esc(err.message)+'</div>';
 });

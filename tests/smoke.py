@@ -1135,19 +1135,37 @@ def main():
     code, page, _ = c.get("/")
     page = page.decode("utf-8", "replace")
     # Nine full reports stacked up is a wall nobody reads to the bottom of.
+    # Three levels: the incidents page, the log reached from it, the record.
+    check("the incidents page shows only the recent few",
+          "function renderRecent()" in page and "all.slice(0,5)" in page)
+    check("the log is a separate pane", 'id="illog"' in page
+          and "function openLog()" in page)
+    check("the log is reachable only from the incidents page",
+          '"incident-log"' in page
+          and '["incident-log"' not in page.split("var NAV=")[1].split("];")[0],
+          True)
+    check("there are three panes and one place that switches them",
+          "function ilShow(v)" in page and 'H("ilmain")' in page
+          and 'H("illog")' in page and 'H("ildetail")' in page, True)
+    check("one row renderer serves both lists", "function ilRow(i, from)" in page)
+    check("the back link names where it goes",
+          'ilFrom==="log"?"Incident log":"Incidents"' in page)
+    check("the log has its own URL too", '#incident-log' in page)
     check("incidents render as a scannable index", "function renderLedger()" in page)
     check("the old stacked-card renderer is gone", "function incHTML" not in page)
     check("rows open a record page, not an accordion",
-          "function openInc(id)" in page and "function renderIncDetail()" in page
+          "function openInc(id, from)" in page
+          and "function renderIncDetail()" in page
           and "function incBody" not in page and "ilToggle" not in page, True)
-    check("the record page has a way back", "function closeInc()" in page
-          and "All incidents" in page)
+    check("the record page has a way back",
+          "function closeInc()" in page and 'class="ibk"' in page)
     check("a record has its own URL", "#incident-" in page
           and "/^incident-(" in page)
-    check("the record survives the 30s reload",
-          "if(ilCurrent) renderIncDetail(); else renderLedger();" in page)
-    check("leaving incidents drops out of the record",
-          'if(v!=="incidents" && ilCurrent)' in page)
+    check("whichever pane is open survives the 30s reload",
+          'if(ilView==="detail" && ilCurrent) renderIncDetail();' in page
+          and 'else if(ilView==="log") renderLedger();' in page, True)
+    check("leaving the section resets it to the front page",
+          'if(v!=="incidents" && ilView!=="main")' in page)
     check("the record shows time to resolve, not just dates",
           '"Time to resolve"' in page)
     check("the record lists that incident's follow-ups",
