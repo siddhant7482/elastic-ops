@@ -331,6 +331,23 @@ textarea{resize:vertical}
 /* palette + toast */
 .scrim{position:fixed;inset:0;z-index:50;background:color-mix(in srgb,var(--dk) 62%,transparent);
   display:grid;place-items:start center;padding:12vh 16px 16px}
+/* Proper dialogs. The browser's prompt() is a different application's UI
+   wearing your data, and it cannot hold two fields, a hint or validation. */
+.scrim.mid{place-items:center;padding:16px}
+.dlg{width:100%;max-width:580px;border-radius:26px;background:var(--paper);
+  box-shadow:var(--r-lg);padding:26px 28px 24px;max-height:86vh;overflow:auto}
+.dlg h3{font-size:18px;font-weight:800;letter-spacing:-.03em}
+.dlg .dsub{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);margin:5px 0 20px}
+.dlg .fld{margin-bottom:17px}
+.dlg .hint{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+.dlg .body{font-size:13px;color:var(--ink-2);line-height:1.6;margin-bottom:4px}
+.dlg .acts{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+.dlg .derr{color:var(--bad);background:var(--bad-bg);border-radius:12px;
+  padding:9px 13px;font-size:12px;margin-bottom:14px}
+.btn.danger{color:var(--bad)}
+.btn.danger:hover{box-shadow:var(--r-sm)}
+@media (max-width:560px){.dlg{padding:22px 18px 18px;border-radius:22px}}
 .pal{width:100%;max-width:540px;border-radius:26px;background:var(--paper);box-shadow:var(--r-lg);overflow:hidden}
 .pal input{border-radius:0;box-shadow:none;font-size:15px;padding:18px 20px;border-bottom:1px solid var(--hair)}
 .pal input:focus{box-shadow:none}
@@ -1804,13 +1821,23 @@ function renderSilences(){
 }
 
 function silence(name){
-  var h=prompt("Silence “"+name+"” for how many hours?\n\n"
-    +"It will un-mute itself automatically. Maximum 168 (one week).","4");
-  if(h===null)return;
-  var reason=prompt("Why? This is what you will read when you wonder why it is quiet.")||"";
-  post("/api/silences",{target:name,hours:parseFloat(h),reason:reason})
-    .then(function(){toast("Silenced "+name+" for "+h+"h");return refresh()})
-    .catch(function(e){toast(e.message)});
+  modal({
+    title:"Silence alerts", sub:name, submit:"Silence",
+    fields:[
+      {k:"hours", label:"For how long", type:"select", value:"4",
+       options:[["1","1 hour"],["4","4 hours"],["8","8 hours — a shift"],
+                ["24","24 hours"],["72","3 days"],["168","1 week — the maximum"]],
+       hint:"It un-mutes itself. Every silence expires; there is no permanent one."},
+      {k:"reason", label:"Why", required:true,
+       placeholder:"Replacing the drum, expect it down until 16:00",
+       hint:"This is what you will read when you wonder why it is quiet."}
+    ],
+    onsubmit:function(v){
+      post("/api/silences",{target:name,hours:parseFloat(v.hours),reason:v.reason})
+        .then(function(){toast("Silenced "+name+" for "+v.hours+"h");return refresh()})
+        .catch(function(e){toast(e.message)});
+    }
+  });
 }
 function endSilence(id){
   post("/api/silences/"+id+"/end").then(function(){toast("Silence lifted");return refresh()})
@@ -2141,81 +2168,212 @@ function cancelEditInc(){
   H("i-cancel").hidden=true;
   H("i-editing").hidden=true;
 }
+/* ---------- dialogs ----------
+   One modal, used everywhere. Replaces nineteen prompt() and confirm()
+   boxes, which could not hold two fields, a hint, or any validation, and
+   which rendered as the browser chrome's idea of a dialog rather than
+   this application's. */
+function closeModal(){
+  var sc=H("dlgscrim");
+  if(sc)sc.remove();
+  document.removeEventListener("keydown",dlgKey);
+}
+function dlgKey(e){ if(e.key==="Escape")closeModal(); }
+
+function modal(o){
+  closeModal();
+  var fields=(o.fields||[]).map(function(f,ix){
+    var id="dlgf"+ix, v=f.value==null?"":String(f.value);
+    var ctrl;
+    if(f.type==="textarea"){
+      ctrl='<textarea id="'+id+'" rows="'+(f.rows||3)+'" placeholder="'
+        +esc(f.placeholder||"")+'">'+esc(v)+'</textarea>';
+    }else if(f.type==="select"){
+      ctrl='<select id="'+id+'">'+(f.options||[]).map(function(op){
+        return '<option value="'+esc(op[0])+'"'+(op[0]===v?" selected":"")
+          +'>'+esc(op[1])+'</option>'}).join("")+'</select>';
+    }else{
+      ctrl='<input id="'+id+'" value="'+esc(v)+'" placeholder="'
+        +esc(f.placeholder||"")+'">';
+    }
+    return '<div class="fld"><label for="'+id+'">'+esc(f.label)+'</label>'+ctrl
+      +(f.hint?'<div class="hint">'+esc(f.hint)+'</div>':"")+'</div>';
+  }).join("");
+
+  var sc=document.createElement("div");
+  sc.className="scrim mid"; sc.id="dlgscrim";
+  sc.innerHTML='<div class="dlg" role="dialog" aria-modal="true" aria-label="'
+    +esc(o.title)+'"><h3>'+esc(o.title)+'</h3>'
+    +(o.sub?'<div class="dsub">'+esc(o.sub)+'</div>':'<div style="height:14px"></div>')
+    +(o.body?'<div class="body">'+esc(o.body)+'</div>':"")
+    +'<div class="derr" id="dlgerr" hidden></div>'
+    +'<form id="dlgform" autocomplete="off">'+fields
+    +'<div class="acts"><button class="btn" type="button" id="dlgcancel">Cancel</button>'
+    +'<button class="btn '+(o.danger?"danger":"go")+'" type="submit">'
+    +esc(o.submit||"Save")+'</button></div></form></div>';
+  document.body.appendChild(sc);
+
+  sc.addEventListener("click",function(e){ if(e.target===sc)closeModal() });
+  H("dlgcancel").onclick=closeModal;
+  document.addEventListener("keydown",dlgKey);
+
+  H("dlgform").onsubmit=function(e){
+    e.preventDefault();
+    var vals={},bad=null;
+    (o.fields||[]).forEach(function(f,ix){
+      var el=H("dlgf"+ix), val=(el?el.value:"").trim();
+      if(f.required&&!val&&!bad)bad=f.label+" is required.";
+      vals[f.k]=val;
+    });
+    if(bad){ var er=H("dlgerr"); er.textContent=bad; er.hidden=false; return false }
+    closeModal();
+    o.onsubmit(vals);
+    return false;
+  };
+  var first=H("dlgf0"); if(first)first.focus();
+}
+
+function askConfirm(o){
+  modal({title:o.title, sub:o.sub, body:o.body, fields:[],
+         submit:o.submit||"Delete", danger:true, onsubmit:o.onyes});
+}
+
+function resolveInc(id){
+  var i=incById(id);
+  modal({
+    title:"Resolve incident", sub:(i.ref||"")+" · "+(i.title||""),
+    submit:"Resolve",
+    fields:[
+      {k:"resolution", label:"Actions taken to restore service",
+       type:"textarea", rows:4, required:true,
+       placeholder:"Repointed the queue to 192.168.42.177:9100 on cfp-machine-1 and -2, restarted the spooler, confirmed with a test page.",
+       hint:"The steps someone would repeat if this recurs. Name hosts, addresses and commands — not “fixed it”."},
+      {k:"prevention", label:"Preventive action",
+       type:"textarea", rows:3,
+       placeholder:"Reserve the printer addresses on the UDM so they stop moving.",
+       hint:"What change would have detected or prevented this? Recorded as a follow-up. Leave blank if there genuinely isn’t one."}
+    ],
+    onsubmit:function(v){
+      post("/api/incidents/"+id+"/resolve",v)
+        .then(function(){toast("Resolved");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
+}
 function editResolution(id){
   var i=incById(id);
-  var r=prompt("What did you actually do to fix it?", i.resolution||""); if(r===null)return;
-  var p=prompt("What would have caught this sooner?", i.prevention||""); if(p===null)return;
-  post("/api/incidents/"+id+"/edit",{resolution:r,prevention:p})
-    .then(function(){toast("Resolution updated");return refresh()})
-    .catch(function(err){toast(err.message)});
+  modal({
+    title:"Edit resolution", sub:(i.ref||"")+" · "+(i.title||""),
+    submit:"Save",
+    fields:[
+      {k:"resolution", label:"Actions taken to restore service",
+       type:"textarea", rows:4, value:i.resolution||"", required:true},
+      {k:"prevention", label:"Preventive action",
+       type:"textarea", rows:3, value:i.prevention||"",
+       hint:"Editing this does not create another follow-up."}
+    ],
+    onsubmit:function(v){
+      post("/api/incidents/"+id+"/edit",v)
+        .then(function(){toast("Resolution updated");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function delInc(id){
   var i=incById(id);
-  if(!confirm("Delete "+(i.ref||"this incident")+"?\n\n"+(i.title||"")
-      +"\n\nIts follow-ups go too. This cannot be undone."))return;
-  post("/api/incidents/"+id+"/delete")
-    .then(function(){
-      if(editingInc===id)cancelEditInc();
-      toast("Deleted");return refresh();
-    })
-    .catch(function(err){toast(err.message)});
+  askConfirm({
+    title:"Delete incident", sub:i.ref||"",
+    body:"“"+(i.title||"")+"” and its follow-ups will be removed. This cannot be undone — resolve it instead if it happened and is over.",
+    onyes:function(){
+      post("/api/incidents/"+id+"/delete")
+        .then(function(){ if(editingInc===id)cancelEditInc();
+          toast("Deleted");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function editFollowup(id){
   var f=(S.followups||[]).filter(function(x){return x.id===id})[0]||{};
-  var a=prompt("Action",f.action||""); if(a===null)return;
-  if(!a.trim()){toast("An action is required");return}
-  var o=prompt("Owner",f.owner||""); if(o===null)return;
-  var d=prompt("Due (YYYY-MM-DD, blank for none)",f.due||""); if(d===null)return;
-  post("/api/followups/"+id+"/edit",{action:a,owner:o,due:d})
-    .then(function(){toast("Follow-up updated");return refresh()})
-    .catch(function(err){toast(err.message)});
+  modal({
+    title:"Edit follow-up", sub:f.incident_ref||"", submit:"Save",
+    fields:[
+      {k:"action", label:"Action", type:"textarea", rows:3,
+       value:f.action||"", required:true},
+      {k:"owner", label:"Owner", value:f.owner||"",
+       placeholder:"Who is doing it"},
+      {k:"due", label:"Due date", value:f.due||"",
+       placeholder:"YYYY-MM-DD", hint:"Blank for no deadline."}
+    ],
+    onsubmit:function(v){
+      post("/api/followups/"+id+"/edit",v)
+        .then(function(){toast("Follow-up updated");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function delFollowup(id){
-  if(!confirm("Delete this follow-up? This cannot be undone."))return;
-  post("/api/followups/"+id+"/delete")
-    .then(function(){toast("Deleted");return refresh()})
-    .catch(function(err){toast(err.message)});
+  var f=(S.followups||[]).filter(function(x){return x.id===id})[0]||{};
+  askConfirm({
+    title:"Delete follow-up", body:f.action||"",
+    onyes:function(){
+      post("/api/followups/"+id+"/delete")
+        .then(function(){toast("Deleted");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function editChange(id){
   var c=(S.changes||[]).filter(function(x){return x.id===id})[0]||{};
-  var t=prompt("What changed?",c.title||""); if(t===null)return;
-  if(!t.trim()){toast("A title is required");return}
-  var sys=prompt("Which system?",c.system||""); if(sys===null)return;
-  var d=prompt("Why, and what exactly did you do?",c.detail||""); if(d===null)return;
-  post("/api/changes/"+id+"/edit",{title:t,system:sys,detail:d})
-    .then(function(){toast("Change updated");return refresh()})
-    .catch(function(err){toast(err.message)});
+  modal({
+    title:"Edit change record", submit:"Save",
+    fields:[
+      {k:"title", label:"What changed", value:c.title||"", required:true},
+      {k:"system", label:"System", value:c.system||"",
+       placeholder:"Which host or application"},
+      {k:"detail", label:"Why, and what exactly was done",
+       type:"textarea", rows:4, value:c.detail||""}
+    ],
+    onsubmit:function(v){
+      post("/api/changes/"+id+"/edit",v)
+        .then(function(){toast("Change updated");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function delChange(id){
-  if(!confirm("Delete this change record? This cannot be undone."))return;
-  post("/api/changes/"+id+"/delete")
-    .then(function(){toast("Deleted");return refresh()})
-    .catch(function(err){toast(err.message)});
-}
-function resolveInc(id){
-  // Two questions, deliberately. What was done is what you need the next
-  // time the same symptom appears; what would have caught it is what stops
-  // there being a next time. Recording only the second threw away the fix.
-  var r=prompt("What did you actually do to fix it?\n\nThe steps someone would repeat if this happened again.");
-  if(r===null)return;
-  var p=prompt("What would have caught this sooner?\n\nThe answer becomes a follow-up. Leave blank to skip.");
-  if(p===null)return;
-  post("/api/incidents/"+id+"/resolve",{resolution:r,prevention:p})
-    .then(function(){toast("Resolved");return refresh()})
-    .catch(function(err){toast(err.message)});
+  var c=(S.changes||[]).filter(function(x){return x.id===id})[0]||{};
+  askConfirm({
+    title:"Delete change record", body:c.title||"",
+    onyes:function(){
+      post("/api/changes/"+id+"/delete")
+        .then(function(){toast("Deleted");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function doneFollowup(id){
   post("/api/followups/"+id+"/done").then(function(){toast("Marked done");return refresh()})
     .catch(function(err){toast(err.message)});
 }
 function addChange(){
-  var t=prompt("What changed?");
-  if(!t)return;
-  var d=prompt("Why, and what exactly did you do?")||"";
-  var sys=prompt("Which system?")||"";
-  post("/api/changes",{title:t,detail:d,system:sys})
-    .then(function(){toast("Change recorded");return refresh()})
-    .catch(function(err){toast(err.message)});
+  modal({
+    title:"Record a change", submit:"Record",
+    fields:[
+      {k:"title", label:"What changed", required:true,
+       placeholder:"Repointed the Konica print queue"},
+      {k:"system", label:"System",
+       placeholder:"cfp-machine-1, proxmox, the UDM …"},
+      {k:"detail", label:"Why, and what exactly was done",
+       type:"textarea", rows:4,
+       placeholder:"The old port pointed at 192.168.42.63, which is no longer a printer.",
+       hint:"Six months from now this is the only record of why something is the way it is."}
+    ],
+    onsubmit:function(v){
+      post("/api/changes",v)
+        .then(function(){toast("Change recorded");return refresh()})
+        .catch(function(err){toast(err.message)});
+    }
+  });
 }
 function recheck(b){
   b.disabled=true;

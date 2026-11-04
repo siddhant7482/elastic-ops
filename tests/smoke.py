@@ -1136,6 +1136,33 @@ def main():
     check("the probe cleaned up",
           store.one("SELECT COUNT(1) AS n FROM incidents")["n"] == before)
 
+    print("\nproper dialogs")
+    code, page, _ = c.get("/")
+    page = page.decode("utf-8", "replace")
+    # The browser's prompt() is another application's UI wearing your data,
+    # and it cannot hold two fields, a hint, or any validation.
+    body = page.split("<script>")[-1]
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)       # drop block comments
+    body = re.sub(r"(?m)^\s*//.*$", "", body)               # and line comments
+    leftover = [ln.strip()[:70] for ln in body.splitlines()
+                if ("prompt(" in ln or re.search(r"[^.\w]confirm\(", ln))
+                and "placeholder" not in ln]
+    check("no prompt() or confirm() left in the app", not leftover, leftover)
+    check("there is a real modal", "function modal(o){" in page)
+    check("and a confirmation dialog built on it", "function askConfirm(o){" in page)
+    check("dialogs validate required fields",
+          "is required." in page and "dlgerr" in page)
+    check("Escape closes them", "function dlgKey(e)" in page)
+    check("the resolve dialog asks in operational terms",
+          "Actions taken to restore service" in page
+          and "Preventive action" in page, True)
+    check("it asks for specifics, not 'fixed it'",
+          "Name hosts, addresses and commands" in page)
+    check("silences offer a bounded set of durations, not free text",
+          '"168","1 week' in page and 'Every silence expires' in page)
+    check("deletes explain what goes with them",
+          "and its follow-ups will be removed" in page)
+
     print("\nresolution is recorded, not just the lesson")
     # Closing used to capture only "what would have caught this sooner", so
     # the log kept the lesson and threw away the fix.
