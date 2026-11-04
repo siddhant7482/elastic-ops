@@ -66,6 +66,10 @@ CREATE TABLE IF NOT EXISTS incidents (
   detail     TEXT,
   status     TEXT NOT NULL,        -- open | resolved
   owner      TEXT,
+  impact     TEXT,                 -- who is affected and how
+  detected   TEXT,                 -- monitoring | user report | routine check | ...
+  started    TEXT,                 -- when it actually began, if known
+  root_cause TEXT,                 -- why it happened, as opposed to what was seen
   resolution TEXT,                 -- what was actually done about it
   prevention TEXT,                 -- answer to "what would have caught this sooner"
   opened_ts  INTEGER NOT NULL,
@@ -222,6 +226,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 MIGRATIONS = [
     ("printers", "serial", "TEXT"),
     ("incidents", "resolution", "TEXT"),
+    ("incidents", "impact", "TEXT"),
+    ("incidents", "detected", "TEXT"),
+    ("incidents", "started", "TEXT"),
+    ("incidents", "root_cause", "TEXT"),
 ]
 
 
@@ -613,19 +621,23 @@ class Portal:
                        (f"INC-{day}%",))["n"]
         return f"INC-{day}" + (f"-{n + 1}" if n else "")
 
-    def add_incident(self, title, severity, system, detail, owner):
+    def add_incident(self, title, severity, system, detail, owner,
+                     impact="", detected="", started=""):
         ts = now()
         ref = self.next_ref(ts)
         self.s.x(
-            "INSERT INTO incidents(ref,title,severity,system,detail,status,owner,opened_ts)"
-            " VALUES(?,?,?,?,?,'open',?,?)",
-            (ref, title, severity, system, detail, owner, ts))
+            "INSERT INTO incidents(ref,title,severity,system,detail,impact,"
+            "detected,started,status,owner,opened_ts) "
+            "VALUES(?,?,?,?,?,?,?,?,'open',?,?)",
+            (ref, title, severity, system, detail, impact, detected, started,
+             owner, ts))
         return self.s.one("SELECT * FROM incidents WHERE ref=?", (ref,))
 
     # Create-and-close was the whole surface, so a typo in a title was
     # permanent and an incident raised by mistake could only be "resolved" —
     # leaving a lie in the record rather than removing it.
-    INCIDENT_FIELDS = ("title", "severity", "system", "detail",
+    INCIDENT_FIELDS = ("title", "severity", "system", "detail", "impact",
+                       "detected", "started", "root_cause",
                        "resolution", "prevention")
 
     def edit_incident(self, iid, **fields):
@@ -640,18 +652,8 @@ class Portal:
                  (*args, iid))
         return self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))
 
-    def delete_incident(self, iid):
-        """Takes its follow-ups with it. SQLite does not enforce foreign keys
-        unless asked to, so orphaned rows would otherwise sit on the follow-ups
-        page pointing at an incident that no longer exists."""
-        row = self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))
-        if not row:
-            return None
-        self.s.x("DELETE FROM followups WHERE incident_id=?", (iid,))
-        self.s.x("DELETE FROM incidents WHERE id=?", (iid,))
-        return row
-
-    def resolve_incident(self, iid, prevention, owner, resolution=""):
+    def resolve_incident(self, iid, prevention, owner, resolution="",
+                         root_cause=""):
         """Closing records two different things, and both matter.
 
         What was DONE is the thing you need at 2am next time the same symptom
@@ -661,8 +663,8 @@ class Portal:
         sentence nobody re-reads.
         """
         self.s.x("UPDATE incidents SET status='resolved', closed_ts=?, "
-                 "prevention=?, resolution=? WHERE id=?",
-                 (now(), prevention, resolution, iid))
+                 "prevention=?, resolution=?, root_cause=? WHERE id=?",
+                 (now(), prevention, resolution, root_cause, iid))
         if prevention and prevention.strip():
             self.add_followup(iid, prevention.strip(), owner, None)
         return self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))

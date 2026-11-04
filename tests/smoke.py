@@ -1090,13 +1090,12 @@ def main():
     check("an unmentioned follow-up field survives the edit",
           fu.get("due") == "2027-01-01", fu.get("due"))
 
+    # Incidents are deliberately not deletable: a log you can delete from is
+    # not a record. Raised in error? Edit it, or resolve it saying so.
     code, _, _ = c.post_json(f"/api/incidents/{iid}/delete", {})
-    check("an incident can be deleted", code == 200, code)
-    check("deleting an incident takes its follow-ups with it",
-          not any(f["id"] == fid for f in store.q("SELECT id FROM followups")),
-          [f["id"] for f in store.q("SELECT id FROM followups")])
-    code, _, _ = c.post_json(f"/api/incidents/{iid}/delete", {})
-    check("deleting a missing incident is a 404, not a crash", code == 404, code)
+    check("incidents cannot be deleted", code == 404, code)
+    check("the incident is still there",
+          any(r["id"] == iid for r in store.q("SELECT id FROM incidents")))
 
     # Follow-ups delete on their own too.
     code, body, _ = c.post_json("/api/followups", {"action": "standalone"})
@@ -1124,7 +1123,6 @@ def main():
           not any(x["id"] == cid for x in store.q("SELECT id FROM changes")))
 
     # The edit path builds SQL from an allowlist, never from caller keys.
-    before = store.one("SELECT COUNT(1) AS n FROM incidents")["n"]
     code, body, _ = c.post_json("/api/incidents", {"title": "allowlist probe"})
     pid = json.loads(body)["id"]
     c.post_json(f"/api/incidents/{pid}/edit",
@@ -1132,9 +1130,6 @@ def main():
     row = store.one("SELECT * FROM incidents WHERE id=?", (pid,))
     check("an edit cannot set columns outside the allowlist",
           row and row["status"] == "open" and row["id"] == pid, row)
-    c.post_json(f"/api/incidents/{pid}/delete", {})
-    check("the probe cleaned up",
-          store.one("SELECT COUNT(1) AS n FROM incidents")["n"] == before)
 
     print("\nproper dialogs")
     code, page, _ = c.get("/")
@@ -1160,23 +1155,45 @@ def main():
           "Name hosts, addresses and commands" in page)
     check("silences offer a bounded set of durations, not free text",
           '"168","1 week' in page and 'Every silence expires' in page)
-    check("deletes explain what goes with them",
-          "and its follow-ups will be removed" in page)
+    check("remaining deletes name what is going",
+          'title:"Delete follow-up"' in page
+          and 'title:"Delete change record"' in page, True)
+    check("incidents have no delete at all",
+          "function delInc" not in page and "/delete" not in
+          page.split("function incHTML")[1].split("function ")[0], True)
+
+    # Fields a real incident report carries, not just a title and a severity.
+    check("the form asks who is affected", 'id="i-impact"' in page)
+    check("the form asks how it came to light",
+          'id="i-detected"' in page and "Elastic Ops alerted" in page)
+    check("the form asks when it started", 'id="i-started"' in page
+          and 'type="datetime-local"' in page)
+    check("severities explain themselves",
+          "business stopped, or data at risk" in page)
+    check("detail is told not to contain the cause",
+          "Not the cause" in page)
+    check("resolving asks for the root cause separately",
+          'label:"Root cause"' in page and "Why it happened, not what was seen" in page)
 
     print("\nresolution is recorded, not just the lesson")
     # Closing used to capture only "what would have caught this sooner", so
     # the log kept the lesson and threw away the fix.
     code, body, _ = c.post_json("/api/incidents", {
         "title": "Printers unreachable", "severity": "major",
-        "system": "cfp-machine-1", "detail": "queues point at dead addresses"})
+        "system": "cfp-machine-1", "detail": "queues point at dead addresses",
+        "impact": "Finance cannot print invoices. Six users.",
+        "detected": "user report", "started": "2026-10-01T09:00"})
     rid = json.loads(body)["id"]
     code, body, _ = c.post_json(f"/api/incidents/{rid}/resolve", {
+        "root_cause": "Queues pointed at 192.168.42.63, no longer a printer",
         "resolution": "Repointed the queue to 192.168.42.177:9100",
         "prevention": "Reserve the printer addresses on the UDM"})
     done = json.loads(body) if code == 200 else {}
     check("resolving records what was done", code == 200
           and "192.168.42.177" in (done.get("resolution") or ""),
           done.get("resolution"))
+    check("resolving records the root cause",
+          "63" in (done.get("root_cause") or ""), done.get("root_cause"))
     check("resolving still records the prevention",
           "UDM" in (done.get("prevention") or ""), done.get("prevention"))
     check("the incident is closed", done.get("status") == "resolved",
@@ -1201,12 +1218,18 @@ def main():
     # Databases already in the wild need the column adding, or every insert
     # throws while the page quietly serves yesterday's rows.
     from store import MIGRATIONS
-    check("the new column is in the migration list",
-          ("incidents", "resolution", "TEXT") in MIGRATIONS, MIGRATIONS)
+    for col in ("resolution", "impact", "detected", "started", "root_cause"):
+        check(f"the {col} column is in the migration list",
+              ("incidents", col, "TEXT") in MIGRATIONS, MIGRATIONS)
+    full = store.one("SELECT * FROM incidents WHERE id=?", (rid,))
+    check("impact, detection and start time are all stored",
+          full and full["impact"].startswith("Finance")
+          and full["detected"] == "user report"
+          and full["started"] == "2026-10-01T09:00", full)
     cols = {r["name"] for r in store.q("PRAGMA table_info(incidents)")}
-    check("the incidents table has the resolution column",
-          "resolution" in cols, sorted(cols))
-    c.post_json(f"/api/incidents/{rid}/delete", {})
+    check("the incidents table has every new column",
+          {"resolution", "impact", "detected", "started",
+           "root_cause"} <= cols, sorted(cols))
 
     print("\naccepted risks")
     # A standing, written decision to live with something broken. Not a

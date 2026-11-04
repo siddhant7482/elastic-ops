@@ -743,11 +743,23 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     </div>
     <div class="sh"><h2>Report an incident</h2></div>
     <div class="card mb"><form onsubmit="return addInc(event)">
-      <div><label for="i-title">What happened</label><input id="i-title" name="title" placeholder="CCTV server unreachable" required></div>
+      <div><label for="i-title">What happened</label><input id="i-title" name="title" placeholder="CFP workstations cannot print" required></div>
       <div class="f2">
-        <div><label for="i-sev">Severity</label><select id="i-sev" name="sev"><option value="minor">Minor</option><option value="major" selected>Major</option><option value="critical">Critical</option></select></div>
-        <div><label for="i-sys">System affected</label><input id="i-sys" name="sys" placeholder="networkserver" required></div></div>
-      <div><label for="i-detail">What you saw</label><textarea id="i-detail" name="detail" rows="2" placeholder="Symptoms, what you tried, anything in the logs"></textarea></div>
+        <div><label for="i-sev">Severity</label><select id="i-sev" name="sev">
+          <option value="minor">Minor — degraded, people can work</option>
+          <option value="major" selected>Major — a service is unusable</option>
+          <option value="critical">Critical — business stopped, or data at risk</option></select></div>
+        <div><label for="i-sys">System affected</label><input id="i-sys" name="sys" placeholder="cfp-machine-1, proxmox, the Konica…" required></div></div>
+      <div><label for="i-impact">Impact</label><input id="i-impact" name="impact" placeholder="Finance cannot print invoices. Six users."></div>
+      <div class="f2">
+        <div><label for="i-detected">How it came to light</label><select id="i-detected" name="detected">
+          <option value="user report">A user reported it</option>
+          <option value="monitoring">Elastic Ops alerted</option>
+          <option value="routine check">Found during routine work</option>
+          <option value="third party">A supplier or customer told us</option>
+          <option value="unknown">Unknown</option></select></div>
+        <div><label for="i-started">When it started</label><input id="i-started" name="started" type="datetime-local"></div></div>
+      <div><label for="i-detail">What you saw</label><textarea id="i-detail" name="detail" rows="3" placeholder="Symptoms, error messages, what was already tried. Not the cause — that goes in on resolution, once you know it."></textarea></div>
       <div><button class="btn go" type="submit" id="i-submit">Open incident</button>
         <button class="btn" type="button" id="i-cancel" hidden onclick="cancelEditInc()">Cancel</button>
         <span class="lab" id="i-editing" hidden></span></div>
@@ -1562,18 +1574,23 @@ function incHTML(i){
   var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
   var len=i.closed_ts?dur(i.closed_ts-i.opened_ts):dur(Math.floor(Date.now()/1000)-i.opened_ts);
   var who=(i.owner||"··").split(/\s+/).map(function(w){return w[0]}).join("").slice(0,2).toUpperCase();
+  function line(k,v){ return v?'<p class="meta"><b>'+k+':</b> '+esc(v)+'</p>':"" }
   return '<div class="row"><div class="sv '+cls+'"></div><div class="bd">'
     +'<b>'+esc(i.title)+'</b> '+pill(i.status==="resolved"?"ok":"warn",
         i.status==="resolved"?"Resolved":"Open")
-    +'<div class="meta">'+esc(i.ref)+' · '+fdate(i.opened_ts)+' · '+len+' · '+esc(i.system||"")+'</div>'
+    +'<div class="meta">'+esc(i.ref)+' · '+fdate(i.opened_ts)+' · '+len
+    +(i.system?' · '+esc(i.system):"")
+    +(i.detected?' · found by '+esc(i.detected):"")+'</div>'
+    +(i.impact?'<p><b>'+esc(i.impact)+'</b></p>':"")
     +'<p>'+esc(i.detail||"No detail recorded yet.")+'</p>'
-    +(i.resolution?'<p class="meta"><b>Fixed by:</b> '+esc(i.resolution)+'</p>':"")
-    +(i.prevention?'<p class="meta">Prevention: '+esc(i.prevention)+'</p>':"")
+    +line("Started", i.started&&i.started.replace("T"," "))
+    +line("Root cause", i.root_cause)
+    +line("Fixed by", i.resolution)
+    +line("Prevention", i.prevention)
     +'<p>'+(i.status==="open"
         ?'<button class="btn" onclick="resolveInc('+i.id+')">Resolve</button> '
         :'<button class="btn" onclick="editResolution('+i.id+')">Edit resolution</button> ')
-      +'<button class="btn" onclick="editInc('+i.id+')">Edit</button> '
-      +'<button class="btn" onclick="delInc('+i.id+')">Delete</button></p>'
+      +'<button class="btn" onclick="editInc('+i.id+')">Edit</button></p>'
     +'</div><div class="av">'+esc(who)+'</div></div>';
 }
 
@@ -2130,8 +2147,9 @@ var editingInc=null;
 function addInc(e){
   e.preventDefault();
   var f=e.target;
-  var body={title:f.title.value,severity:f.sev.value,
-            system:f.sys.value,detail:f.detail.value};
+  var body={title:f.title.value, severity:f.sev.value, system:f.sys.value,
+            impact:f.impact.value, detected:f.detected.value,
+            started:f.started.value, detail:f.detail.value};
   var url=editingInc?("/api/incidents/"+editingInc+"/edit"):"/api/incidents";
   var was=editingInc;
   post(url,body)
@@ -2152,6 +2170,9 @@ function editInc(id){
   H("i-title").value=i.title||"";
   H("i-sev").value=i.severity||"major";
   H("i-sys").value=i.system||"";
+  H("i-impact").value=i.impact||"";
+  H("i-detected").value=i.detected||"user report";
+  H("i-started").value=i.started||"";
   H("i-detail").value=i.detail||"";
   H("i-submit").textContent="Save changes";
   H("i-cancel").hidden=false;
@@ -2244,6 +2265,9 @@ function resolveInc(id){
     title:"Resolve incident", sub:(i.ref||"")+" · "+(i.title||""),
     submit:"Resolve",
     fields:[
+      {k:"root_cause", label:"Root cause", type:"textarea", rows:3, required:true,
+       placeholder:"The print queues pointed at 192.168.42.63, which has not been a printer since the addresses moved.",
+       hint:"Why it happened, not what was seen. If it is still unknown, say so plainly rather than guessing."},
       {k:"resolution", label:"Actions taken to restore service",
        type:"textarea", rows:4, required:true,
        placeholder:"Repointed the queue to 192.168.42.177:9100 on cfp-machine-1 and -2, restarted the spooler, confirmed with a test page.",
@@ -2266,6 +2290,8 @@ function editResolution(id){
     title:"Edit resolution", sub:(i.ref||"")+" · "+(i.title||""),
     submit:"Save",
     fields:[
+      {k:"root_cause", label:"Root cause", type:"textarea", rows:3,
+       value:i.root_cause||"", required:true},
       {k:"resolution", label:"Actions taken to restore service",
        type:"textarea", rows:4, value:i.resolution||"", required:true},
       {k:"prevention", label:"Preventive action",
@@ -2275,19 +2301,6 @@ function editResolution(id){
     onsubmit:function(v){
       post("/api/incidents/"+id+"/edit",v)
         .then(function(){toast("Resolution updated");return refresh()})
-        .catch(function(err){toast(err.message)});
-    }
-  });
-}
-function delInc(id){
-  var i=incById(id);
-  askConfirm({
-    title:"Delete incident", sub:i.ref||"",
-    body:"“"+(i.title||"")+"” and its follow-ups will be removed. This cannot be undone — resolve it instead if it happened and is over.",
-    onyes:function(){
-      post("/api/incidents/"+id+"/delete")
-        .then(function(){ if(editingInc===id)cancelEditInc();
-          toast("Deleted");return refresh()})
         .catch(function(err){toast(err.message)});
     }
   });

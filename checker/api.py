@@ -432,7 +432,11 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     raise ValueError("a title is required")
                 inc = portal.add_incident(
                     title, (d.get("severity") or "major").lower(),
-                    (d.get("system") or "").strip(), (d.get("detail") or "").strip(), who)
+                    (d.get("system") or "").strip(),
+                    (d.get("detail") or "").strip(), who,
+                    (d.get("impact") or "").strip(),
+                    (d.get("detected") or "").strip(),
+                    (d.get("started") or "").strip())
                 log(f"incident opened by {who}: {inc['ref']} {title}")
                 return self._send(201, inc)
 
@@ -445,7 +449,8 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 inc = portal.edit_incident(
                     int(path.split("/")[3]),
                     **{k: (d[k] or "").strip() for k in
-                       ("title", "severity", "system", "detail",
+                       ("title", "severity", "system", "detail", "impact",
+                        "detected", "started", "root_cause",
                         "resolution", "prevention")
                        if k in d})
                 if not inc:
@@ -453,20 +458,13 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 log(f"incident edited by {who}: {inc['ref']}")
                 return self._send(200, inc)
 
-            if path.startswith("/api/incidents/") and path.endswith("/delete"):
-                inc = portal.delete_incident(int(path.split("/")[3]))
-                if not inc:
-                    return self._send(404, {"error": "no such incident"})
-                # Logged because the row is gone: the journal is the only
-                # remaining trace that this incident ever existed.
-                log(f"incident DELETED by {who}: {inc['ref']} {inc['title']}")
-                return self._send(200, {"ok": True, "deleted": inc["ref"]})
-
             if path.startswith("/api/incidents/") and path.endswith("/resolve"):
                 iid = int(path.split("/")[3])
                 d = self._json()
-                inc = portal.resolve_incident(iid, (d.get("prevention") or "").strip(),
-                                              who, (d.get("resolution") or "").strip())
+                inc = portal.resolve_incident(
+                    iid, (d.get("prevention") or "").strip(), who,
+                    (d.get("resolution") or "").strip(),
+                    (d.get("root_cause") or "").strip())
                 if not inc:
                     return self._send(404, {"error": "no such incident"})
                 log(f"incident resolved by {who}: {inc['ref']}")
