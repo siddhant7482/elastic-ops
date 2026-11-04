@@ -1136,6 +1136,51 @@ def main():
     check("the probe cleaned up",
           store.one("SELECT COUNT(1) AS n FROM incidents")["n"] == before)
 
+    print("\nresolution is recorded, not just the lesson")
+    # Closing used to capture only "what would have caught this sooner", so
+    # the log kept the lesson and threw away the fix.
+    code, body, _ = c.post_json("/api/incidents", {
+        "title": "Printers unreachable", "severity": "major",
+        "system": "cfp-machine-1", "detail": "queues point at dead addresses"})
+    rid = json.loads(body)["id"]
+    code, body, _ = c.post_json(f"/api/incidents/{rid}/resolve", {
+        "resolution": "Repointed the queue to 192.168.42.177:9100",
+        "prevention": "Reserve the printer addresses on the UDM"})
+    done = json.loads(body) if code == 200 else {}
+    check("resolving records what was done", code == 200
+          and "192.168.42.177" in (done.get("resolution") or ""),
+          done.get("resolution"))
+    check("resolving still records the prevention",
+          "UDM" in (done.get("prevention") or ""), done.get("prevention"))
+    check("the incident is closed", done.get("status") == "resolved",
+          done.get("status"))
+    check("the prevention still became a follow-up",
+          any("UDM" in (f["action"] or "")
+              for f in store.q("SELECT action FROM followups")), True)
+    check("the resolution did NOT become a follow-up",
+          not any("Repointed" in (f["action"] or "")
+                  for f in store.q("SELECT action FROM followups")), True)
+
+    # Both are editable afterwards — the fix is usually written up in a hurry.
+    code, body, _ = c.post_json(f"/api/incidents/{rid}/edit",
+                                {"resolution": "Repointed on 201 and 202"})
+    amended = json.loads(body) if code == 200 else {}
+    check("the resolution can be corrected later",
+          amended.get("resolution") == "Repointed on 201 and 202",
+          amended.get("resolution"))
+    check("correcting the resolution leaves the prevention alone",
+          "UDM" in (amended.get("prevention") or ""), amended.get("prevention"))
+
+    # Databases already in the wild need the column adding, or every insert
+    # throws while the page quietly serves yesterday's rows.
+    from store import MIGRATIONS
+    check("the new column is in the migration list",
+          ("incidents", "resolution", "TEXT") in MIGRATIONS, MIGRATIONS)
+    cols = {r["name"] for r in store.q("PRAGMA table_info(incidents)")}
+    check("the incidents table has the resolution column",
+          "resolution" in cols, sorted(cols))
+    c.post_json(f"/api/incidents/{rid}/delete", {})
+
     print("\naccepted risks")
     # A standing, written decision to live with something broken. Not a
     # silence — silences expire by design, so expressing a permanent decision

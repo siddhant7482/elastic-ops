@@ -1550,9 +1550,11 @@ function incHTML(i){
         i.status==="resolved"?"Resolved":"Open")
     +'<div class="meta">'+esc(i.ref)+' · '+fdate(i.opened_ts)+' · '+len+' · '+esc(i.system||"")+'</div>'
     +'<p>'+esc(i.detail||"No detail recorded yet.")+'</p>'
+    +(i.resolution?'<p class="meta"><b>Fixed by:</b> '+esc(i.resolution)+'</p>':"")
     +(i.prevention?'<p class="meta">Prevention: '+esc(i.prevention)+'</p>':"")
     +'<p>'+(i.status==="open"
-        ?'<button class="btn" onclick="resolveInc('+i.id+')">Resolve</button> ':"")
+        ?'<button class="btn" onclick="resolveInc('+i.id+')">Resolve</button> '
+        :'<button class="btn" onclick="editResolution('+i.id+')">Edit resolution</button> ')
       +'<button class="btn" onclick="editInc('+i.id+')">Edit</button> '
       +'<button class="btn" onclick="delInc('+i.id+')">Delete</button></p>'
     +'</div><div class="av">'+esc(who)+'</div></div>';
@@ -2139,6 +2141,14 @@ function cancelEditInc(){
   H("i-cancel").hidden=true;
   H("i-editing").hidden=true;
 }
+function editResolution(id){
+  var i=incById(id);
+  var r=prompt("What did you actually do to fix it?", i.resolution||""); if(r===null)return;
+  var p=prompt("What would have caught this sooner?", i.prevention||""); if(p===null)return;
+  post("/api/incidents/"+id+"/edit",{resolution:r,prevention:p})
+    .then(function(){toast("Resolution updated");return refresh()})
+    .catch(function(err){toast(err.message)});
+}
 function delInc(id){
   var i=incById(id);
   if(!confirm("Delete "+(i.ref||"this incident")+"?\n\n"+(i.title||"")
@@ -2183,9 +2193,14 @@ function delChange(id){
     .catch(function(err){toast(err.message)});
 }
 function resolveInc(id){
+  // Two questions, deliberately. What was done is what you need the next
+  // time the same symptom appears; what would have caught it is what stops
+  // there being a next time. Recording only the second threw away the fix.
+  var r=prompt("What did you actually do to fix it?\n\nThe steps someone would repeat if this happened again.");
+  if(r===null)return;
   var p=prompt("What would have caught this sooner?\n\nThe answer becomes a follow-up. Leave blank to skip.");
   if(p===null)return;
-  post("/api/incidents/"+id+"/resolve",{prevention:p})
+  post("/api/incidents/"+id+"/resolve",{resolution:r,prevention:p})
     .then(function(){toast("Resolved");return refresh()})
     .catch(function(err){toast(err.message)});
 }

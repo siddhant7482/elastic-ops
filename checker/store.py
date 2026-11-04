@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   detail     TEXT,
   status     TEXT NOT NULL,        -- open | resolved
   owner      TEXT,
+  resolution TEXT,                 -- what was actually done about it
   prevention TEXT,                 -- answer to "what would have caught this sooner"
   opened_ts  INTEGER NOT NULL,
   closed_ts  INTEGER
@@ -220,6 +221,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 # page quietly serves yesterday's rows. Add to this list, never edit history.
 MIGRATIONS = [
     ("printers", "serial", "TEXT"),
+    ("incidents", "resolution", "TEXT"),
 ]
 
 
@@ -623,7 +625,8 @@ class Portal:
     # Create-and-close was the whole surface, so a typo in a title was
     # permanent and an incident raised by mistake could only be "resolved" —
     # leaving a lie in the record rather than removing it.
-    INCIDENT_FIELDS = ("title", "severity", "system", "detail", "prevention")
+    INCIDENT_FIELDS = ("title", "severity", "system", "detail",
+                       "resolution", "prevention")
 
     def edit_incident(self, iid, **fields):
         sets, args = [], []
@@ -648,11 +651,18 @@ class Portal:
         self.s.x("DELETE FROM incidents WHERE id=?", (iid,))
         return row
 
-    def resolve_incident(self, iid, prevention, owner):
-        """Closing asks one question — what would have caught this sooner — and
-        the answer becomes a follow-up rather than a sentence nobody re-reads."""
-        self.s.x("UPDATE incidents SET status='resolved', closed_ts=?, prevention=? "
-                 "WHERE id=?", (now(), prevention, iid))
+    def resolve_incident(self, iid, prevention, owner, resolution=""):
+        """Closing records two different things, and both matter.
+
+        What was DONE is the thing you need at 2am next time the same symptom
+        appears — it was missing until now, so the log kept the lesson and
+        threw away the fix. What would have CAUGHT IT SOONER is the thing that
+        stops it happening again, so it becomes a follow-up rather than a
+        sentence nobody re-reads.
+        """
+        self.s.x("UPDATE incidents SET status='resolved', closed_ts=?, "
+                 "prevention=?, resolution=? WHERE id=?",
+                 (now(), prevention, resolution, iid))
         if prevention and prevention.strip():
             self.add_followup(iid, prevention.strip(), owner, None)
         return self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))

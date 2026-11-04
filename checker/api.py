@@ -445,7 +445,8 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 inc = portal.edit_incident(
                     int(path.split("/")[3]),
                     **{k: (d[k] or "").strip() for k in
-                       ("title", "severity", "system", "detail", "prevention")
+                       ("title", "severity", "system", "detail",
+                        "resolution", "prevention")
                        if k in d})
                 if not inc:
                     return self._send(404, {"error": "no such incident"})
@@ -464,7 +465,8 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             if path.startswith("/api/incidents/") and path.endswith("/resolve"):
                 iid = int(path.split("/")[3])
                 d = self._json()
-                inc = portal.resolve_incident(iid, (d.get("prevention") or "").strip(), who)
+                inc = portal.resolve_incident(iid, (d.get("prevention") or "").strip(),
+                                              who, (d.get("resolution") or "").strip())
                 if not inc:
                     return self._send(404, {"error": "no such incident"})
                 log(f"incident resolved by {who}: {inc['ref']}")
