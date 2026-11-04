@@ -1019,19 +1019,6 @@ def main():
     check("overview is still reachable", '"overview","Overview"' in page)
     check("the LED board is present",
           'id="led-msg"' in page and "ALL SYSTEMS NOMINAL" in page)
-    # The launcher is a front door, not a page inside the console: no sidebar,
-    # no hamburger, brand in the bar instead.
-    check("launch mode drops the sidebar", "body.launch .side{display:none}" in page)
-    check("launch mode drops the hamburger too",
-          "body.launch .ham{display:none" in page)
-    check("launch mode is toggled on navigation",
-          'classList.toggle("launch", v==="estate")' in page)
-    check("the brand shows in the bar instead",
-          'class="launchbrand"' in page and "body.launch .launchbrand{display:flex}" in page)
-    check("Command Center is a tile that goes to the console",
-          "Command Center" in page and "go(\\'overview\\')" in page)
-    check("groups have a fixed order, not inventory order",
-          "var GORDER=" in page and '"Devices"' in page)
 
     apps = inventory.get("apps", [])
     check("devices and consoles were added to the launcher",

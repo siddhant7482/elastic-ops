@@ -99,36 +99,6 @@ h1,h2,h3{margin:0;letter-spacing:-.022em}
   max-width:1900px;margin-inline:auto;width:100%}
 
 /* ---------- surfaces ---------- */
-/* --- launch mode ----------------------------------------------------
-   The launcher is a front door, not a page inside the console, so it drops
-   the sidebar entirely. The nav belongs to the monitoring app, which you
-   reach through the Command Center tile — at which point it reappears. */
-body.launch .side{display:none}
-body.launch .ham{display:none!important}   /* nothing to open */
-body.launch .brandbar{display:none!important}
-body.launch .top h1{display:none}
-body.launch .launchbrand{display:flex}
-body.launch .wrap{max-width:1240px;padding-top:30px}
-.launchbrand{display:none;align-items:center;gap:12px;min-width:0}
-.launchbrand .bmark{width:38px;height:38px;border-radius:13px}
-.launchbrand b{display:block;font-size:17px;font-weight:800;letter-spacing:-.03em;line-height:1.15}
-.launchbrand i{display:block;font-style:normal;font-family:var(--mono);font-size:8.5px;
-  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
-
-/* The way back in. A whole tile for it, because it is the one destination
-   here that is not a separate system — it is the rest of this application. */
-.cc{grid-column:span 2;flex-direction:row;align-items:center;gap:16px;
-  padding:20px 22px;background:var(--forest);box-shadow:var(--r-md);
-  color:#EAF6EF;cursor:pointer;border:0;text-align:left;font:inherit;width:100%}
-.cc:hover{box-shadow:var(--r-lg);transform:translateY(-2px)}
-.cc .ic{background:rgba(255,255,255,.14);box-shadow:none;width:46px;height:46px}
-.cc .ic svg{stroke:#A8E0C4;width:22px;height:22px}
-.cc .ccb{min-width:0;display:flex;flex-direction:column;gap:3px}
-.cc b{font-size:15px;color:#fff}
-.cc span{font-size:11.5px;color:#A8E0C4;line-height:1.4}
-.cc .arw{margin-left:auto;flex:none;font-family:var(--mono);font-size:17px;color:#A8E0C4}
-@media (max-width:600px){.cc{grid-column:span 2;padding:16px 18px}}
-
 /* --- the LED board -------------------------------------------------
    A dark panel pressed into the console. Neumorphism is light sculpted by
    shadow, so an inset recess is the honest way to read as a screen set into
@@ -621,9 +591,6 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2"/></svg>
     </button>
     <span class="brandbar"><i>Elastic Ops</i><b id="pagename2">Overview</b></span>
-    <span class="launchbrand">
-      <span class="bmark"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="2" fill="none"/></svg></span>
-      <span><b>Elastic Ops</b><i>Estate console</i></span></span>
     <h1 id="ptitle">Overview</h1>
     <div class="search" onclick="openPal()" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openPal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>
@@ -1198,39 +1165,20 @@ function renderAll(){
    that watches it, so each one can say whether the thing is up before you
    click it. A bookmark page cannot do that. */
 var GCLS={Business:"g-biz", Infrastructure:"g-inf", Internal:"g-int", Devices:"g-dev"};
-/* Display names and a fixed order, so the page does not re-arrange itself
-   when someone adds an entry to inventory.toml in the wrong place. */
-var GLABEL={Business:"Business systems", Infrastructure:"Infrastructure",
-            Internal:"Internal services", Devices:"Devices & consoles"};
-var GORDER=["Business","Infrastructure","Internal","Devices"];
 
 function renderEstate(){
   var byName={}; (S.status.items||[]).forEach(function(r){byName[r.name]=r});
   var apps=(S.inv&&S.inv.apps)||[];
-  var seen={};
+  var groups=[],seen={};
   apps.forEach(function(a){
     var g=a.group||"Other";
-    (seen[g]=seen[g]||[]).push(a);
+    if(!seen[g]){seen[g]={name:g,items:[]};groups.push(seen[g])}
+    seen[g].items.push(a);
   });
-  var order=GORDER.filter(function(g){return seen[g]})
-    .concat(Object.keys(seen).filter(function(g){return GORDER.indexOf(g)<0}));
 
-  var sm=S.status.summary||{};
-  var cc='<div class="tiles mb">'
-    +'<button class="tile cc" onclick="go(\'overview\')">'
-    +'<span class="ic">'+svg("pulse")+'</span>'
-    +'<span class="ccb"><b>Command Center</b>'
-    +'<span>'+esc(plural((S.status.items||[]).length,"check"))+' · '
-    +(sm.down?esc(plural(sm.down,"down")):"all clear")
-    +' · incidents, backups, disks and the timeline</span></span>'
-    +'<span class="arw">&rarr;</span></button></div>';
-
-  H("tilegroups").innerHTML=cc+order.map(function(gname){
-    var items=seen[gname];
-    return '<div class="sh"><h2>'+esc(GLABEL[gname]||gname)+'</h2>'
-      +'<span class="lab">'+items.length+'</span></div><div class="tiles mb">'
-      +items.map(function(a){
-        var g={name:gname};
+  H("tilegroups").innerHTML=groups.map(function(g){
+    return '<div class="sh"><h2>'+esc(g.name)+'</h2></div><div class="tiles mb">'
+      +g.items.map(function(a){
         var chk=byName[a.check]||{}, st=a.check?stOf(chk):"dim";
         var label=!a.check?"not monitored"
           :chk.status==="up"?"up"
@@ -2303,8 +2251,6 @@ function go(v){
   });
   H("ptitle").innerHTML=titles[v];
   H("pagename2").innerHTML=titles[v];
-  // The launcher is a front door: no sidebar, brand in the bar instead.
-  document.body.classList.toggle("launch", v==="estate");
   try{history.replaceState(null,"","#"+v)}catch(e){}
   sideClose(); window.scrollTo(0,0);
 }
