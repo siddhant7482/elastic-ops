@@ -436,6 +436,31 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 log(f"incident opened by {who}: {inc['ref']} {title}")
                 return self._send(201, inc)
 
+            # Edit and delete come before /resolve and before the followups
+            # catch-all below, which would otherwise swallow them.
+            if path.startswith("/api/incidents/") and path.endswith("/edit"):
+                d = self._json()
+                if "title" in d and not (d.get("title") or "").strip():
+                    raise ValueError("a title is required")
+                inc = portal.edit_incident(
+                    int(path.split("/")[3]),
+                    **{k: (d[k] or "").strip() for k in
+                       ("title", "severity", "system", "detail", "prevention")
+                       if k in d})
+                if not inc:
+                    return self._send(404, {"error": "no such incident"})
+                log(f"incident edited by {who}: {inc['ref']}")
+                return self._send(200, inc)
+
+            if path.startswith("/api/incidents/") and path.endswith("/delete"):
+                inc = portal.delete_incident(int(path.split("/")[3]))
+                if not inc:
+                    return self._send(404, {"error": "no such incident"})
+                # Logged because the row is gone: the journal is the only
+                # remaining trace that this incident ever existed.
+                log(f"incident DELETED by {who}: {inc['ref']} {inc['title']}")
+                return self._send(200, {"ok": True, "deleted": inc["ref"]})
+
             if path.startswith("/api/incidents/") and path.endswith("/resolve"):
                 iid = int(path.split("/")[3])
                 d = self._json()
@@ -453,6 +478,25 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 fid = portal.add_followup(d.get("incident_id"), action,
                                           d.get("owner") or who, d.get("due"))
                 return self._send(201, {"id": fid})
+
+            if path.startswith("/api/followups/") and path.endswith("/edit"):
+                d = self._json()
+                if "action" in d and not (d.get("action") or "").strip():
+                    raise ValueError("an action is required")
+                row = portal.edit_followup(
+                    int(path.split("/")[3]),
+                    **{k: (d[k] or "").strip() if isinstance(d[k], str) else d[k]
+                       for k in ("action", "owner", "due") if k in d})
+                if not row:
+                    return self._send(404, {"error": "no such follow-up"})
+                return self._send(200, row)
+
+            if path.startswith("/api/followups/") and path.endswith("/delete"):
+                row = portal.delete_followup(int(path.split("/")[3]))
+                if not row:
+                    return self._send(404, {"error": "no such follow-up"})
+                log(f"follow-up DELETED by {who}: {row['action']}")
+                return self._send(200, {"ok": True})
 
             if path.startswith("/api/followups/"):
                 fid = int(path.split("/")[3])
@@ -486,6 +530,25 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 cid = portal.add_change(title, d.get("who") or who,
                                         d.get("system"), d.get("detail"))
                 return self._send(201, {"id": cid})
+
+            if path.startswith("/api/changes/") and path.endswith("/edit"):
+                d = self._json()
+                if "title" in d and not (d.get("title") or "").strip():
+                    raise ValueError("a title is required")
+                row = portal.edit_change(
+                    int(path.split("/")[3]),
+                    **{k: (d[k] or "").strip() for k in
+                       ("title", "system", "detail") if k in d})
+                if not row:
+                    return self._send(404, {"error": "no such change"})
+                return self._send(200, row)
+
+            if path.startswith("/api/changes/") and path.endswith("/delete"):
+                row = portal.delete_change(int(path.split("/")[3]))
+                if not row:
+                    return self._send(404, {"error": "no such change"})
+                log(f"change DELETED by {who}: {row['title']}")
+                return self._send(200, {"ok": True})
 
             return self._send(404, {"error": "not found"})
 

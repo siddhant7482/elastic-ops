@@ -658,7 +658,9 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
         <div><label for="i-sev">Severity</label><select id="i-sev" name="sev"><option value="minor">Minor</option><option value="major" selected>Major</option><option value="critical">Critical</option></select></div>
         <div><label for="i-sys">System affected</label><input id="i-sys" name="sys" placeholder="networkserver" required></div></div>
       <div><label for="i-detail">What you saw</label><textarea id="i-detail" name="detail" rows="2" placeholder="Symptoms, what you tried, anything in the logs"></textarea></div>
-      <div><button class="btn go" type="submit">Open incident</button></div>
+      <div><button class="btn go" type="submit" id="i-submit">Open incident</button>
+        <button class="btn" type="button" id="i-cancel" hidden onclick="cancelEditInc()">Cancel</button>
+        <span class="lab" id="i-editing" hidden></span></div>
     </form></div>
     <div class="sh"><h2>Follow-ups</h2><span class="lab" id="focount"></span></div>
     <div class="tw mb"><table><thead><tr><th>Action</th><th>From</th><th>Owner</th><th>Due</th><th>State</th><th></th></tr></thead><tbody id="forows"></tbody></table><div id="foempty"></div></div>
@@ -1382,7 +1384,10 @@ function renderIncidents(){
       +'<td>'+pill(f.status==="done"?"ok":overdue?"bad":"warn",
           f.status==="done"?"Done":overdue?"Overdue":"Open")+'</td>'
       +'<td>'+(f.status==="open"
-          ?'<button class="btn" onclick="doneFollowup('+f.id+')">Mark done</button>':"")+'</td></tr>'}).join("");
+          ?'<button class="btn" onclick="doneFollowup('+f.id+')">Mark done</button> ':"")
+        +'<button class="btn" onclick="editFollowup('+f.id+')">Edit</button> '
+        +'<button class="btn" onclick="delFollowup('+f.id+')">Delete</button>'
+        +'</td></tr>'}).join("");
   H("foempty").innerHTML=fo.length?"":mt("No follow-ups",
     "Resolving an incident with an answer to “what would have caught this sooner” creates one.");
 
@@ -1400,7 +1405,10 @@ function incHTML(i){
     +'<div class="meta">'+esc(i.ref)+' · '+fdate(i.opened_ts)+' · '+len+' · '+esc(i.system||"")+'</div>'
     +'<p>'+esc(i.detail||"No detail recorded yet.")+'</p>'
     +(i.prevention?'<p class="meta">Prevention: '+esc(i.prevention)+'</p>':"")
-    +(i.status==="open"?'<p><button class="btn" onclick="resolveInc('+i.id+')">Resolve</button></p>':"")
+    +'<p>'+(i.status==="open"
+        ?'<button class="btn" onclick="resolveInc('+i.id+')">Resolve</button> ':"")
+      +'<button class="btn" onclick="editInc('+i.id+')">Edit</button> '
+      +'<button class="btn" onclick="delInc('+i.id+')">Delete</button></p>'
     +'</div><div class="av">'+esc(who)+'</div></div>';
 }
 
@@ -1435,7 +1443,10 @@ function renderJobs(){
   H("chglist").innerHTML=(S.changes||[]).length?S.changes.map(function(c){
     return '<div class="row"><div class="when">'+fdate(c.ts)+'</div><div class="bd">'
       +'<b>'+esc(c.title)+'</b><span class="tag">'+esc(c.system||"estate")+'</span>'
-      +'<p>'+esc(c.detail||"")+'</p></div><div class="av">'
+      +'<p>'+esc(c.detail||"")+'</p>'
+      +'<p><button class="btn" onclick="editChange('+c.id+')">Edit</button> '
+      +'<button class="btn" onclick="delChange('+c.id+')">Delete</button></p>'
+      +'</div><div class="av">'
       +esc((c.who||"··").split(/\s+/).map(function(w){return w[0]}).join("").slice(0,2).toUpperCase())
       +'</div></div>'}).join("")
     :mt("No changes recorded","Record one above. Six months from now this is the only record of why something is the way it is.");
@@ -1938,14 +1949,92 @@ function labelTables(){
 }
 
 /* ============================================================ actions */
+/* The same form opens an incident and edits one. Reusing it beats a second
+   form to keep in step, and beats a chain of prompt() boxes for four fields. */
+var editingInc=null;
 function addInc(e){
   e.preventDefault();
   var f=e.target;
-  post("/api/incidents",{title:f.title.value,severity:f.sev.value,
-                         system:f.sys.value,detail:f.detail.value})
-    .then(function(inc){f.reset();toast("Incident "+inc.ref+" opened");return refresh()})
+  var body={title:f.title.value,severity:f.sev.value,
+            system:f.sys.value,detail:f.detail.value};
+  var url=editingInc?("/api/incidents/"+editingInc+"/edit"):"/api/incidents";
+  var was=editingInc;
+  post(url,body)
+    .then(function(inc){
+      cancelEditInc();
+      toast(was?("Incident "+(inc.ref||"")+" updated"):("Incident "+inc.ref+" opened"));
+      return refresh();
+    })
     .catch(function(err){toast(err.message)});
   return false;
+}
+function incById(id){
+  return (S.incidents||[]).filter(function(x){return x.id===id})[0]||{};
+}
+function editInc(id){
+  var i=incById(id);
+  editingInc=id;
+  H("i-title").value=i.title||"";
+  H("i-sev").value=i.severity||"major";
+  H("i-sys").value=i.system||"";
+  H("i-detail").value=i.detail||"";
+  H("i-submit").textContent="Save changes";
+  H("i-cancel").hidden=false;
+  H("i-editing").hidden=false;
+  H("i-editing").textContent="Editing "+(i.ref||"");
+  H("i-title").scrollIntoView({block:"center"});
+  H("i-title").focus();
+}
+function cancelEditInc(){
+  editingInc=null;
+  var f=H("i-title").form;
+  if(f)f.reset();
+  H("i-submit").textContent="Open incident";
+  H("i-cancel").hidden=true;
+  H("i-editing").hidden=true;
+}
+function delInc(id){
+  var i=incById(id);
+  if(!confirm("Delete "+(i.ref||"this incident")+"?\n\n"+(i.title||"")
+      +"\n\nIts follow-ups go too. This cannot be undone."))return;
+  post("/api/incidents/"+id+"/delete")
+    .then(function(){
+      if(editingInc===id)cancelEditInc();
+      toast("Deleted");return refresh();
+    })
+    .catch(function(err){toast(err.message)});
+}
+function editFollowup(id){
+  var f=(S.followups||[]).filter(function(x){return x.id===id})[0]||{};
+  var a=prompt("Action",f.action||""); if(a===null)return;
+  if(!a.trim()){toast("An action is required");return}
+  var o=prompt("Owner",f.owner||""); if(o===null)return;
+  var d=prompt("Due (YYYY-MM-DD, blank for none)",f.due||""); if(d===null)return;
+  post("/api/followups/"+id+"/edit",{action:a,owner:o,due:d})
+    .then(function(){toast("Follow-up updated");return refresh()})
+    .catch(function(err){toast(err.message)});
+}
+function delFollowup(id){
+  if(!confirm("Delete this follow-up? This cannot be undone."))return;
+  post("/api/followups/"+id+"/delete")
+    .then(function(){toast("Deleted");return refresh()})
+    .catch(function(err){toast(err.message)});
+}
+function editChange(id){
+  var c=(S.changes||[]).filter(function(x){return x.id===id})[0]||{};
+  var t=prompt("What changed?",c.title||""); if(t===null)return;
+  if(!t.trim()){toast("A title is required");return}
+  var sys=prompt("Which system?",c.system||""); if(sys===null)return;
+  var d=prompt("Why, and what exactly did you do?",c.detail||""); if(d===null)return;
+  post("/api/changes/"+id+"/edit",{title:t,system:sys,detail:d})
+    .then(function(){toast("Change updated");return refresh()})
+    .catch(function(err){toast(err.message)});
+}
+function delChange(id){
+  if(!confirm("Delete this change record? This cannot be undone."))return;
+  post("/api/changes/"+id+"/delete")
+    .then(function(){toast("Deleted");return refresh()})
+    .catch(function(err){toast(err.message)});
 }
 function resolveInc(id){
   var p=prompt("What would have caught this sooner?\n\nThe answer becomes a follow-up. Leave blank to skip.");

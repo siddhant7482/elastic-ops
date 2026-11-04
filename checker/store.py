@@ -620,6 +620,34 @@ class Portal:
             (ref, title, severity, system, detail, owner, ts))
         return self.s.one("SELECT * FROM incidents WHERE ref=?", (ref,))
 
+    # Create-and-close was the whole surface, so a typo in a title was
+    # permanent and an incident raised by mistake could only be "resolved" —
+    # leaving a lie in the record rather than removing it.
+    INCIDENT_FIELDS = ("title", "severity", "system", "detail", "prevention")
+
+    def edit_incident(self, iid, **fields):
+        sets, args = [], []
+        for k in self.INCIDENT_FIELDS:          # allowlist, never the caller's keys
+            if k in fields and fields[k] is not None:
+                sets.append(f"{k}=?")
+                args.append(fields[k])
+        if not sets:
+            return self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))
+        self.s.x(f"UPDATE incidents SET {', '.join(sets)} WHERE id=?",  # noqa: S608
+                 (*args, iid))
+        return self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))
+
+    def delete_incident(self, iid):
+        """Takes its follow-ups with it. SQLite does not enforce foreign keys
+        unless asked to, so orphaned rows would otherwise sit on the follow-ups
+        page pointing at an incident that no longer exists."""
+        row = self.s.one("SELECT * FROM incidents WHERE id=?", (iid,))
+        if not row:
+            return None
+        self.s.x("DELETE FROM followups WHERE incident_id=?", (iid,))
+        self.s.x("DELETE FROM incidents WHERE id=?", (iid,))
+        return row
+
     def resolve_incident(self, iid, prevention, owner):
         """Closing asks one question — what would have caught this sooner — and
         the answer becomes a follow-up rather than a sentence nobody re-reads."""
@@ -644,6 +672,26 @@ class Portal:
     def set_followup(self, fid, status):
         self.s.x("UPDATE followups SET status=? WHERE id=?", (status, fid))
 
+    FOLLOWUP_FIELDS = ("action", "owner", "due")
+
+    def edit_followup(self, fid, **fields):
+        sets, args = [], []
+        for k in self.FOLLOWUP_FIELDS:
+            if k in fields and fields[k] is not None:
+                sets.append(f"{k}=?")
+                args.append(fields[k])
+        if not sets:
+            return self.s.one("SELECT * FROM followups WHERE id=?", (fid,))
+        self.s.x(f"UPDATE followups SET {', '.join(sets)} WHERE id=?",  # noqa: S608
+                 (*args, fid))
+        return self.s.one("SELECT * FROM followups WHERE id=?", (fid,))
+
+    def delete_followup(self, fid):
+        row = self.s.one("SELECT * FROM followups WHERE id=?", (fid,))
+        if row:
+            self.s.x("DELETE FROM followups WHERE id=?", (fid,))
+        return row
+
     # -- changes ---------------------------------------------------------
     def changes(self, limit=100):
         return self.s.q("SELECT * FROM changes ORDER BY ts DESC LIMIT ?", (limit,))
@@ -651,6 +699,26 @@ class Portal:
     def add_change(self, title, who, system, detail, ts=None):
         return self.s.x("INSERT INTO changes(ts,title,who,system,detail) VALUES(?,?,?,?,?)",
                         (ts or now(), title, who, system, detail))
+
+    CHANGE_FIELDS = ("title", "system", "detail")
+
+    def edit_change(self, cid, **fields):
+        sets, args = [], []
+        for k in self.CHANGE_FIELDS:
+            if k in fields and fields[k] is not None:
+                sets.append(f"{k}=?")
+                args.append(fields[k])
+        if not sets:
+            return self.s.one("SELECT * FROM changes WHERE id=?", (cid,))
+        self.s.x(f"UPDATE changes SET {', '.join(sets)} WHERE id=?",  # noqa: S608
+                 (*args, cid))
+        return self.s.one("SELECT * FROM changes WHERE id=?", (cid,))
+
+    def delete_change(self, cid):
+        row = self.s.one("SELECT * FROM changes WHERE id=?", (cid,))
+        if row:
+            self.s.x("DELETE FROM changes WHERE id=?", (cid,))
+        return row
 
     # -- ingested from the estate ----------------------------------------
     def backups(self):

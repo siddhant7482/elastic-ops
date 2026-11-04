@@ -1007,6 +1007,92 @@ def main():
           and page.count("api(\"/api/") == 15, page.count("api(\"/api/"))
     check("storage is in the nav", '"storage","Disks' in page)
 
+    print("\nediting and deleting what you wrote")
+    # Create-and-close was the whole surface: a typo in a title was permanent,
+    # and an incident raised by mistake could only be "resolved", which leaves
+    # a lie in the record rather than removing it.
+    code, body, _ = c.post_json("/api/incidents", {
+        "title": "Typpo in the titel", "severity": "minor",
+        "system": "testbox", "detail": "first draft"})
+    inc = json.loads(body)
+    iid = inc["id"]
+    check("an incident can be opened", code == 201 and inc["ref"], code)
+
+    code, body, _ = c.post_json(f"/api/incidents/{iid}/edit",
+                                {"title": "Typo in the title fixed",
+                                 "detail": "corrected", "severity": "major"})
+    fixed = json.loads(body) if code == 200 else {}
+    check("an incident can be edited", code == 200
+          and fixed.get("title") == "Typo in the title fixed"
+          and fixed.get("severity") == "major", [code, fixed.get("title")])
+    check("editing leaves the ref alone", fixed.get("ref") == inc["ref"],
+          fixed.get("ref"))
+    check("fields left out of an edit are untouched",
+          fixed.get("system") == "testbox", fixed.get("system"))
+
+    code, _, _ = c.post_json(f"/api/incidents/{iid}/edit", {"title": "   "})
+    check("an edit cannot blank the title", code == 400, code)
+
+    # A follow-up hangs off the incident; deleting the incident must take it.
+    code, body, _ = c.post_json("/api/followups",
+                                {"incident_id": iid, "action": "chekc the thing",
+                                 "owner": "tester", "due": "2027-01-01"})
+    fid = json.loads(body)["id"]
+    code, body, _ = c.post_json(f"/api/followups/{fid}/edit",
+                                {"action": "check the thing", "owner": "someone"})
+    fu = json.loads(body) if code == 200 else {}
+    check("a follow-up can be edited", code == 200
+          and fu.get("action") == "check the thing"
+          and fu.get("owner") == "someone", [code, fu.get("action")])
+    check("an unmentioned follow-up field survives the edit",
+          fu.get("due") == "2027-01-01", fu.get("due"))
+
+    code, _, _ = c.post_json(f"/api/incidents/{iid}/delete", {})
+    check("an incident can be deleted", code == 200, code)
+    check("deleting an incident takes its follow-ups with it",
+          not any(f["id"] == fid for f in store.q("SELECT id FROM followups")),
+          [f["id"] for f in store.q("SELECT id FROM followups")])
+    code, _, _ = c.post_json(f"/api/incidents/{iid}/delete", {})
+    check("deleting a missing incident is a 404, not a crash", code == 404, code)
+
+    # Follow-ups delete on their own too.
+    code, body, _ = c.post_json("/api/followups", {"action": "standalone"})
+    sfid = json.loads(body)["id"]
+    code, _, _ = c.post_json(f"/api/followups/{sfid}/delete", {})
+    check("a follow-up can be deleted on its own", code == 200, code)
+    check("/done still works after the new routes were added in front of it",
+          c.post_json("/api/followups/" + str(
+              json.loads(c.post_json("/api/followups",
+                                     {"action": "closeme"})[1])["id"]) + "/done",
+              {})[0] == 200)
+
+    code, body, _ = c.post_json("/api/changes",
+                                {"title": "wrogn", "system": "x", "detail": "y"})
+    cid = json.loads(body)["id"]
+    code, body, _ = c.post_json(f"/api/changes/{cid}/edit", {"title": "right"})
+    ch = json.loads(body) if code == 200 else {}
+    check("a change can be edited", code == 200 and ch.get("title") == "right",
+          [code, ch.get("title")])
+    check("an unmentioned change field survives", ch.get("system") == "x",
+          ch.get("system"))
+    code, _, _ = c.post_json(f"/api/changes/{cid}/delete", {})
+    check("a change can be deleted", code == 200, code)
+    check("the deleted change is gone",
+          not any(x["id"] == cid for x in store.q("SELECT id FROM changes")))
+
+    # The edit path builds SQL from an allowlist, never from caller keys.
+    before = store.one("SELECT COUNT(1) AS n FROM incidents")["n"]
+    code, body, _ = c.post_json("/api/incidents", {"title": "allowlist probe"})
+    pid = json.loads(body)["id"]
+    c.post_json(f"/api/incidents/{pid}/edit",
+                {"status": "resolved", "id": 9999, "opened_ts": 0})
+    row = store.one("SELECT * FROM incidents WHERE id=?", (pid,))
+    check("an edit cannot set columns outside the allowlist",
+          row and row["status"] == "open" and row["id"] == pid, row)
+    c.post_json(f"/api/incidents/{pid}/delete", {})
+    check("the probe cleaned up",
+          store.one("SELECT COUNT(1) AS n FROM incidents")["n"] == before)
+
     print("\naccepted risks")
     # A standing, written decision to live with something broken. Not a
     # silence — silences expire by design, so expressing a permanent decision
