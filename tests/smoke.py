@@ -20,6 +20,7 @@ import os
 import queue
 import re
 import shutil
+import subprocess
 import sqlite3
 import socket
 import sys
@@ -1131,6 +1132,24 @@ def main():
     check("an edit cannot set columns outside the allowlist",
           row and row["status"] == "open" and row["id"] == pid, row)
 
+    print("\nthe page actually parses")
+    # A syntax error anywhere in the script leaves the portal on its loading
+    # screen forever: nothing renders, nothing hides the boot panel, and no
+    # assertion about the page's *text* notices, because the text is all there.
+    # Every check below this one passed while the app was dead on arrival.
+    node = shutil.which("node")
+    if not node:
+        print("  skipped — node not installed")
+    else:
+        js = page.split("<script>")[-1].split("</script>")[0]
+        jsf = os.path.join(tmp, "page.js")
+        with open(jsf, "w", encoding="utf-8") as fh:
+            fh.write(js)
+        r = subprocess.run([node, "--check", jsf], capture_output=True, text=True)
+        msg = (r.stderr or "").strip().splitlines()
+        check("the page JavaScript parses", r.returncode == 0,
+              " / ".join(msg[:4]))
+
     print("\nincident ledger")
     code, page, _ = c.get("/")
     page = page.decode("utf-8", "replace")
@@ -1147,7 +1166,7 @@ def main():
     check("there are three panes and one place that switches them",
           "function ilShow(v)" in page and 'H("ilmain")' in page
           and 'H("illog")' in page and 'H("ildetail")' in page, True)
-    check("one row renderer serves both lists", "function ilRow(i, from)" in page)
+    check("one row renderer serves both lists", "function ilRow(i){" in page)
     check("the back link names where it goes",
           'ilFrom==="log"?"Incident log":"Incidents"' in page)
     check("the log has its own URL too", '#incident-log' in page)

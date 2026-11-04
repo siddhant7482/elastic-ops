@@ -1668,14 +1668,15 @@ function renderRecent(){
     ? "Open the incident log — "+plural(all.length,"record")
     : "Open the incident log";
   H("recentlist").innerHTML = five.length
-    ? five.map(function(i){ return ilRow(i,"main") }).join("")
+    ? five.map(ilRow).join("")
     : mt("No incidents recorded","Report the first one above.");
 }
 
-/* One row, used by the recent five and by the log. */
-function ilRow(i, from){
+/* One row, used by the recent five and by the log. Where it was
+   clicked from is ilView, so it needs no argument. */
+function ilRow(i){
   var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
-  return '<button class="ilx" onclick="openInc('+i.id+',''+from+'')">'
+  return '<button class="ilx" onclick="openInc('+i.id+')">'
     +'<span class="sv2 '+cls+'" title="'+esc(i.severity)+'"></span>'
     +'<span class="ref">'+esc(i.ref||"")+'</span>'
     +'<span class="ti">'+esc(i.title)+'</span>'
@@ -1746,7 +1747,7 @@ function renderLedger(){
         return MON[y.getMonth()]+" "+y.getFullYear()===m}).length;
       out+='<div class="ilm"><b>'+esc(m)+'</b><span>'+plural(n,"incident")+'</span></div>';
     }
-    out+=ilRow(i,"log");
+    out+=ilRow(i);
   });
   H("inclist").innerHTML=out;
 }
