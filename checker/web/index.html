@@ -348,6 +348,42 @@ textarea{resize:vertical}
 .btn.danger{color:var(--bad)}
 .btn.danger:hover{box-shadow:var(--r-sm)}
 @media (max-width:560px){.dlg{padding:22px 18px 18px;border-radius:22px}}
+/* --- the incident ledger ---
+   An index you can scan, not nine full reports stacked up. One line each
+   until you ask for more. */
+.ilbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ilbar input{flex:1;min-width:180px}
+.ilseg{display:flex;gap:3px;padding:3px;border-radius:999px;box-shadow:var(--i-sm);flex:none}
+.ilseg button{appearance:none;border:0;background:none;font:inherit;cursor:pointer;
+  font-size:11.5px;font-weight:700;padding:7px 14px;border-radius:999px;color:var(--ink-3)}
+.ilseg button[aria-pressed="true"]{color:var(--ok);box-shadow:var(--r-sm)}
+.ilm{display:flex;align-items:baseline;gap:10px;padding:15px 19px 9px;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);border-top:1px solid var(--hair)}
+.ilm b{color:var(--ink-2);font-weight:600}
+.ilm span{margin-left:auto}
+.ilx{display:flex;align-items:center;gap:13px;padding:11px 19px;cursor:pointer;
+  width:100%;text-align:left;appearance:none;border:0;background:none;font:inherit;
+  border-top:1px solid var(--hair)}
+.ilx:hover .ti{color:var(--ok)}
+.ilx .sv2{width:7px;height:7px;border-radius:50%;flex:none}
+.sv2.crit{background:var(--bad)} .sv2.maj{background:var(--warn)} .sv2.min{background:var(--ink-3)}
+.ilx .ref{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex:none}
+.ilx .ti{flex:1;min-width:0;font-weight:600;font-size:13px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ilx .ago{font-family:var(--mono);font-size:10px;color:var(--ink-3);flex:none}
+.ilx .chev{flex:none;font-family:var(--mono);font-size:11px;color:var(--ink-3);width:12px}
+.ilbody{padding:2px 19px 20px 42px}
+.ilbody .fl{margin-bottom:11px}
+.ilbody .fl b{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.ilbody .fl p{margin:0;font-size:13px;line-height:1.6;white-space:pre-wrap}
+@media (max-width:620px){
+  .ilx{gap:9px;padding:11px 14px;flex-wrap:wrap}
+  .ilx .ref{width:100%;order:-1}
+  .ilx .ago{display:none}
+  .ilbody{padding:2px 14px 18px 14px}
+}
 .pal{width:100%;max-width:540px;border-radius:26px;background:var(--paper);box-shadow:var(--r-lg);overflow:hidden}
 .pal input{border-radius:0;box-shadow:none;font-size:15px;padding:18px 20px;border-bottom:1px solid var(--hair)}
 .pal input:focus{box-shadow:none}
@@ -767,6 +803,14 @@ svg.schem .gl{fill:none;stroke:var(--ink-3);stroke-width:1;opacity:.3;stroke-das
     <div class="sh"><h2>Follow-ups</h2><span class="lab" id="focount"></span></div>
     <div class="tw mb"><table><thead><tr><th>Action</th><th>From</th><th>Owner</th><th>Due</th><th>State</th><th></th></tr></thead><tbody id="forows"></tbody></table><div id="foempty"></div></div>
     <div class="sh"><h2 id="inccount">Incidents</h2></div>
+    <div class="ilbar">
+      <input id="ilq" placeholder="Search incidents — title, system, cause, anything" oninput="ilFilter()">
+      <div class="ilseg" role="group" aria-label="Filter by state">
+        <button id="ilf-all" aria-pressed="true" onclick="ilSet('all')">All</button>
+        <button id="ilf-open" aria-pressed="false" onclick="ilSet('open')">Open</button>
+        <button id="ilf-resolved" aria-pressed="false" onclick="ilSet('resolved')">Resolved</button>
+      </div>
+    </div>
     <div class="rl" id="inclist"></div>
   </section>
 
@@ -1567,33 +1611,86 @@ function renderIncidents(){
     "Resolving an incident with an answer to “what would have caught this sooner” creates one.");
 
   H("inccount").textContent=inc.length?plural(inc.length,"incident"):"Incidents";
-  H("inclist").innerHTML=inc.length?inc.map(incHTML).join("")
-    :mt("No incidents recorded","Report the first one above.");
-}
-function incHTML(i){
-  var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
-  var len=i.closed_ts?dur(i.closed_ts-i.opened_ts):dur(Math.floor(Date.now()/1000)-i.opened_ts);
-  var who=(i.owner||"··").split(/\s+/).map(function(w){return w[0]}).join("").slice(0,2).toUpperCase();
-  function line(k,v){ return v?'<p class="meta"><b>'+k+':</b> '+esc(v)+'</p>':"" }
-  return '<div class="row"><div class="sv '+cls+'"></div><div class="bd">'
-    +'<b>'+esc(i.title)+'</b> '+pill(i.status==="resolved"?"ok":"warn",
-        i.status==="resolved"?"Resolved":"Open")
-    +'<div class="meta">'+esc(i.ref)+' · '+fdate(i.opened_ts)+' · '+len
-    +(i.system?' · '+esc(i.system):"")
-    +(i.detected?' · found by '+esc(i.detected):"")+'</div>'
-    +(i.impact?'<p><b>'+esc(i.impact)+'</b></p>':"")
-    +'<p>'+esc(i.detail||"No detail recorded yet.")+'</p>'
-    +line("Started", i.started&&i.started.replace("T"," "))
-    +line("Root cause", i.root_cause)
-    +line("Fixed by", i.resolution)
-    +line("Prevention", i.prevention)
-    +'<p>'+(i.status==="open"
-        ?'<button class="btn" onclick="resolveInc('+i.id+')">Resolve</button> '
-        :'<button class="btn" onclick="editResolution('+i.id+')">Edit resolution</button> ')
-      +'<button class="btn" onclick="editInc('+i.id+')">Edit</button></p>'
-    +'</div><div class="av">'+esc(who)+'</div></div>';
+  renderLedger();
 }
 
+/* ---- the incident ledger ----
+   Nine full reports stacked up is a wall nobody reads to the bottom of. An
+   index you can scan, grouped by month, and you open the one you want. */
+var ilQ="", ilState="all", ilOpen={};
+function ilSet(v){
+  ilState=v;
+  ["all","open","resolved"].forEach(function(k){
+    H("ilf-"+k).setAttribute("aria-pressed", k===v?"true":"false")});
+  renderLedger();
+}
+function ilFilter(){ ilQ=(H("ilq").value||"").toLowerCase().trim(); renderLedger() }
+function ilToggle(id){ ilOpen[id]=!ilOpen[id]; renderLedger() }
+
+function ilMatch(i){
+  if(ilState!=="all" && i.status!==ilState) return false;
+  if(!ilQ) return true;
+  return [i.ref,i.title,i.system,i.impact,i.detail,i.root_cause,
+          i.resolution,i.prevention,i.detected]
+    .join(" ").toLowerCase().indexOf(ilQ)>-1;
+}
+
+function renderLedger(){
+  var all=(S.incidents||[]).slice().sort(function(a,b){return b.opened_ts-a.opened_ts});
+  var rows=all.filter(ilMatch);
+  if(!all.length){
+    H("inclist").innerHTML=mt("No incidents recorded","Report the first one above.");
+    return;
+  }
+  if(!rows.length){
+    H("inclist").innerHTML=mt("Nothing matches",
+      "No incident matches “"+esc(ilQ)+"”"
+      +(ilState==="all"?"":" that is "+ilState)+".");
+    return;
+  }
+  var out="",month="";
+  rows.forEach(function(i){
+    var d=new Date(i.opened_ts*1000);
+    var m=MON[d.getMonth()]+" "+d.getFullYear();
+    if(m!==month){
+      month=m;
+      var n=rows.filter(function(x){
+        var y=new Date(x.opened_ts*1000);
+        return MON[y.getMonth()]+" "+y.getFullYear()===m}).length;
+      out+='<div class="ilm"><b>'+esc(m)+'</b><span>'+plural(n,"incident")+'</span></div>';
+    }
+    var cls=i.severity==="critical"?"crit":i.severity==="major"?"maj":"min";
+    var open=!!ilOpen[i.id];
+    out+='<button class="ilx" onclick="ilToggle('+i.id+')" aria-expanded="'+open+'">'
+      +'<span class="chev">'+(open?"−":"+")+'</span>'
+      +'<span class="sv2 '+cls+'" title="'+esc(i.severity)+'"></span>'
+      +'<span class="ref">'+esc(i.ref||"")+'</span>'
+      +'<span class="ti">'+esc(i.title)+'</span>'
+      +pill(i.status==="resolved"?"ok":"warn", i.status==="resolved"?"Resolved":"Open")
+      +'<span class="ago">'+fdate(i.opened_ts)+'</span></button>';
+    if(open) out+='<div class="ilbody">'+incBody(i)+'</div>';
+  });
+  H("inclist").innerHTML=out;
+}
+
+function incBody(i){
+  function fl(k,v){ return v?'<div class="fl"><b>'+k+'</b><p>'+esc(v)+'</p></div>':"" }
+  var len=i.closed_ts?dur(i.closed_ts-i.opened_ts)
+    :dur(Math.floor(Date.now()/1000)-i.opened_ts);
+  var meta=[i.system, i.detected?"found by "+i.detected:"",
+            "open for "+len, i.owner].filter(Boolean).join(" · ");
+  return '<div class="fl"><b>At a glance</b><p>'+esc(meta)+'</p></div>'
+    +fl("Impact", i.impact)
+    +fl("Started", i.started&&i.started.replace("T"," "))
+    +fl("What was seen", i.detail)
+    +fl("Root cause", i.root_cause)
+    +fl("Actions taken", i.resolution)
+    +fl("Preventive action", i.prevention)
+    +'<p>'+(i.status==="open"
+        ?'<button class="btn" onclick="event.stopPropagation();resolveInc('+i.id+')">Resolve</button> '
+        :'<button class="btn" onclick="event.stopPropagation();editResolution('+i.id+')">Edit resolution</button> ')
+      +'<button class="btn" onclick="event.stopPropagation();editInc('+i.id+')">Edit</button></p>';
+}
 /* --- jobs & changes --- */
 function renderJobs(){
   var j=jobs(), late=j.filter(function(x){return x.status==="down"});

@@ -1131,6 +1131,29 @@ def main():
     check("an edit cannot set columns outside the allowlist",
           row and row["status"] == "open" and row["id"] == pid, row)
 
+    print("\nincident ledger")
+    code, page, _ = c.get("/")
+    page = page.decode("utf-8", "replace")
+    # Nine full reports stacked up is a wall nobody reads to the bottom of.
+    check("incidents render as a scannable index", "function renderLedger()" in page)
+    check("the old stacked-card renderer is gone", "function incHTML" not in page)
+    check("rows expand to the full record",
+          "function incBody(i)" in page and "function ilToggle(id)" in page)
+    check("there is a search box", 'id="ilq"' in page and "function ilFilter()" in page)
+    check("search covers the cause and the fix, not just the title",
+          "i.root_cause" in page.split("function ilMatch")[1].split("}")[0]
+          and "i.resolution" in page.split("function ilMatch")[1].split("}")[0], True)
+    check("open and resolved can be filtered",
+          "function ilSet(v)" in page and 'id="ilf-open"' in page)
+    check("records are grouped by month", '"ilm"' in page and "MON[d.getMonth()]" in page)
+    check("newest first",
+          "b.opened_ts-a.opened_ts" in page)
+    check("an empty search says so rather than showing nothing",
+          "Nothing matches" in page)
+    check("expanded rows label every field",
+          'fl("Root cause"' in page and 'fl("Actions taken"' in page
+          and 'fl("Preventive action"' in page, True)
+
     print("\nproper dialogs")
     code, page, _ = c.get("/")
     page = page.decode("utf-8", "replace")
@@ -1158,9 +1181,10 @@ def main():
     check("remaining deletes name what is going",
           'title:"Delete follow-up"' in page
           and 'title:"Delete change record"' in page, True)
+    body_src = page.split("function incBody")[1][:1200]
     check("incidents have no delete at all",
-          "function delInc" not in page and "/delete" not in
-          page.split("function incHTML")[1].split("function ")[0], True)
+          "function delInc" not in page and "delete" not in body_src.lower(),
+          True)
 
     # Fields a real incident report carries, not just a title and a severity.
     check("the form asks who is affected", 'id="i-impact"' in page)
