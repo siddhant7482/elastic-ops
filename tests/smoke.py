@@ -1132,6 +1132,50 @@ def main():
     check("an edit cannot set columns outside the allowlist",
           row and row["status"] == "open" and row["id"] == pid, row)
 
+    print("\ncheck-in tokens")
+    # /checkin/ is unauthenticated by design, so the token IS the credential.
+    # They used to be descriptive -- sql-dumps, pbs-verify, collector-yam --
+    # which anyone on the network could guess first try and use to mark a
+    # backup job healthy. "Silence is the alert" only works if silence cannot
+    # be faked.
+    with open(os.path.join(ROOT, "checker", "checks.toml"), "rb") as fh:
+        shipped_cfg = tomllib.load(fh)
+    toks = [(j["name"], j.get("token", "")) for j in shipped_cfg.get("jobs", [])]
+    check("every job has a check-in token", all(t for _, t in toks), toks)
+    short = [(n, len(t)) for n, t in toks if len(t) < 20]
+    check("no token is short enough to guess", not short, short)
+    guessy = [n for n, t in toks
+              if any(w in t.lower() for w in
+                     ("collector", "backup", "verify", "dump", "nightly", "pbs"))]
+    check("no token is derived from what it names", not guessy, guessy)
+    check("tokens are distinct", len({t for _, t in toks}) == len(toks))
+
+    # A wrong token must cost something, or they can be tried at leisure.
+    code, _, _ = c.get("/checkin/definitely-not-a-real-token")
+    check("a bad check-in token is a 404", code == 404, code)
+    for _ in range(6):
+        c.get("/checkin/still-not-real")
+    code, _, _ = c.get("/checkin/still-not-real")
+    check("repeated bad tokens get locked out", code == 429, code)
+    # ...and that lockout must not bleed into the login form, or a collector
+    # with a stale token locks the admin out from that address.
+    code, body, _ = c.get("/login")
+    check("the check-in lockout does not block login", code == 200, code)
+
+    # Both token comparisons are constant-time.
+    src = open(os.path.join(ROOT, "checker", "api.py"), encoding="utf-8").read()
+    src += open(os.path.join(ROOT, "checker", "engine.py"), encoding="utf-8").read()
+    check("tokens are compared in constant time",
+          src.count("hmac.compare_digest") >= 2
+          and "== ingest_token" not in src, True)
+
+    # The installer must not invent a token from the hostname any more.
+    inst = open(os.path.join(ROOT, "deploy", "install-collector.sh"),
+                encoding="utf-8").read()
+    check("the installer requires an explicit check-in token",
+          'CHECKIN="${OPS_CHECKIN:-}"' in inst
+          and "OPS_CHECKIN=collector-" not in inst, True)
+
     print("\nthe page actually parses")
     # A syntax error anywhere in the script leaves the portal on its loading
     # screen forever: nothing renders, nothing hides the boot panel, and no

@@ -16,6 +16,7 @@ content type, which a cross-origin HTML form cannot send without a preflight
 the browser will refuse.
 """
 
+import hmac
 import html
 import http.server
 import json
@@ -146,7 +147,11 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             if not ingest_token:
                 return False
             sent = (self.headers.get("X-Ingest-Token") or "").strip()
-            return sent and sent == ingest_token
+            # Constant-time: a plain == leaks how much of the token matched
+            # through timing. Impractical to exploit over a network, cheap
+            # enough to not have to argue about.
+            return bool(sent) and hmac.compare_digest(sent.encode(),
+                                                      ingest_token.encode())
 
         # -- static ------------------------------------------------------
         def _static(self, rel):
@@ -184,10 +189,21 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                 return self._send(200, body)
 
             if path.startswith("/checkin/"):
+                # Unauthenticated by design — cron calls this with no
+                # credentials — so a wrong token has to cost something, or
+                # the tokens can simply be guessed at leisure. Namespaced so
+                # a collector with a stale token cannot lock anyone out of
+                # the login form.
+                who = "checkin:" + self._addr()
+                if auth.locked(who):
+                    return self._send(429, {"ok": False,
+                                            "error": "too many bad tokens"})
                 name = engine.checkin(path.rsplit("/", 1)[-1])
                 if name:
                     log(f"check-in: {name}")
                     return self._send(200, {"ok": True, "job": name}, "text/plain")
+                auth.note_fail(who)
+                log(f"bad check-in token from {self._addr()}")
                 return self._send(404, {"ok": False, "error": "unknown token"})
 
             if path == "/login":

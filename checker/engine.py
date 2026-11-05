@@ -14,6 +14,7 @@ Four decisions here are the whole point of the thing, so they are worth stating:
     something outside the estate can tell you the estate's watchman has died.
 """
 
+import hmac
 import json
 import os
 import time
@@ -600,7 +601,8 @@ class Engine:
 
     def checkin(self, token):
         for j in self.cfg.get("jobs", []):
-            if j.get("token") and j["token"] == token:
+            if j.get("token") and hmac.compare_digest(
+                    j["token"].encode(), token.encode()):
                 self.store.update(j["name"], last_ok=now(), last_run=now(),
                                   fails=0, detail="checked in")
                 self.transition(j["name"], "up", "checked in", j["severity"])

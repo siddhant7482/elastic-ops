@@ -6,27 +6,34 @@
 # Installs post_estate.py, writes its config, sets up two systemd timers, and
 # posts once so the portal has data before you walk away. Safe to re-run.
 #
-# The check-in token is derived from the hostname — collector-cinnamon,
-# collector-proxmox and so on — so each host reports separately. Sharing one
-# token would let a single host still reporting mask four that had stopped,
-# which is the exact failure this is here to catch.
+# Each host gets its OWN check-in token, passed in rather than derived from
+# the hostname. /checkin/ is unauthenticated by design, so a token anyone
+# could guess from the host name -- collector-yam, pbs-verify -- let anyone
+# on the network mark a job healthy. Copy the value out of the matching
+# [[jobs]] entry in checks.toml.
 
 set -eu
 
 URL="${OPS_URL:-}"
 TOKEN="${OPS_TOKEN:-}"
+CHECKIN="${OPS_CHECKIN:-}"
 SRC="${SRC:-$(dirname "$0")/post_estate.py}"
 DEST=/opt/estate/post_estate.py
 HOST=$(hostname -s)
 
 [ -n "$URL" ] || { echo "set OPS_URL, e.g. http://10.10.1.70:8080" >&2; exit 1; }
 [ -n "$TOKEN" ] || { echo "set OPS_TOKEN to the portal's ingest token" >&2; exit 1; }
+[ -n "$CHECKIN" ] || {
+    echo "set OPS_CHECKIN to this host check-in token from checks.toml." >&2
+    echo "No longer derived from the hostname: a guessable token on an" >&2
+    echo "unauthenticated endpoint lets anyone mark a job healthy." >&2
+    exit 1; }
 [ -f "$SRC" ] || { echo "cannot find post_estate.py at $SRC" >&2; exit 1; }
 
 echo "==> Installing on $HOST"
 install -D -m 755 "$SRC" "$DEST"
 
-printf 'OPS_URL=%s\nOPS_TOKEN=%s\nOPS_CHECKIN=collector-%s\n' "$URL" "$TOKEN" "$HOST" \
+printf 'OPS_URL=%s\nOPS_TOKEN=%s\nOPS_CHECKIN=%s\n' "$URL" "$TOKEN" "$CHECKIN" \
     > /etc/default/estate-collector
 chmod 600 /etc/default/estate-collector
 echo "    $DEST and /etc/default/estate-collector written"
