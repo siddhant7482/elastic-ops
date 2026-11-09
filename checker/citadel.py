@@ -57,6 +57,14 @@ KINDS = {
 PREFIXES = {v: k for k, v in KINDS.items()}
 OBJECT_KINDS = ("host", "guest", "app", "device")   # kinds with a live counterpart
 
+# The binding key that *identifies* a record, as opposed to merely enriching
+# it. A record is orphaned when its identity no longer exists; a record that
+# only joins a check or a backup table has nothing to be orphaned from, and
+# calling it orphaned sends people looking for a deleted object that was never
+# claimed in the first place.
+IDENTITY = {"host": "host", "guest": "guest", "app": "app",
+            "device": "printer"}
+
 DEFAULT_REVIEW = "6 months"
 _MONTHS = re.compile(r"(\d+)\s*(month|year|week|day)", re.I)
 _SHELF_OK = re.compile(r"^[A-Z]{3}\.[A-Z0-9][A-Z0-9-]*$")
@@ -415,7 +423,9 @@ def findings(catalogue, live, accepted=(), users=(), live_errors=()):
             create={"kind": okind, "key": okey})
 
     for rec in sorted(catalogue.records.values(), key=lambda r: r.shelf):
-        if rec.kind in OBJECT_KINDS and rec.bind and for_rec.get(rec.shelf) is None:
+        ident = IDENTITY.get(rec.kind)
+        if (ident and rec.bind.get(ident) is not None
+                and for_rec.get(rec.shelf) is None):
             add(NOTIFY, "orphaned", rec.shelf,
                 f"{rec.shelf} binds {rec.bind} — no such object any more")
 
@@ -711,10 +721,17 @@ class Service:
         cov = coverage(self.cat, live)
         f = self.findings()
         counts = {k: len(self.cat.of_kind(k)) for k in KINDS}
+        # How many of each kind the estate actually has, so the page can say
+        # "0 of 5 hosts" rather than "0 hosts" — which reads as an estate with
+        # no hosts in it, and is the opposite of what this is for.
+        present = {}
+        for o in live:
+            present[o["kind"]] = present.get(o["kind"], 0) + 1
         words = sum(len(self.cat.search_text(r).split())
                     for r in self.cat.records.values())
         return {
             "counts": counts,
+            "live": present,
             "records": len(self.cat.records),
             "words": words,
             "coverage": cov,

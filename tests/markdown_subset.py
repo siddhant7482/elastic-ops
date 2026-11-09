@@ -135,6 +135,33 @@ check("a repository image renders",
 check("NUL bytes cannot forge a code-span placeholder",
       "<code>" not in html("\x000\x00"))
 
+print("\nflow diagrams")
+FLOW = chr(10).join([
+    "```flow", "title: A to B", "First | sub one", "-> over the wire",
+    "Second | sub two | accent", "=> Branch | off the second", "```"])
+fh = html(FLOW)
+check("renders as svg, not a code block", "<svg" in fh and "<pre>" not in fh)
+check("arrows march", 'class="fl"' in fh)
+check("and carry a moving packet", "<animateMotion" in fh)
+check("the title is shown", "A to B" in fh)
+check("the arrow label is shown", "over the wire" in fh)
+check("an accent node is styled", 'class="bx-a"' in fh)
+check("a branch is drawn, not dropped", "Branch" in fh)
+check("one box per node", fh.count("<rect") == 3, fh.count("<rect"))
+check("labels are escaped",
+      "&lt;b&gt;" in html(chr(10).join(["```flow", "<b>x</b> | sub", "```"])))
+check("an unparseable diagram falls back to code, never guessed",
+      "<pre>" in html(chr(10).join(["```flow", "| | | |", "```"])))
+check("a branch with no node before it is refused",
+      "<pre>" in html(chr(10).join(["```flow", "=> orphan", "```"])))
+check("an arrow with no node before it is refused",
+      "<pre>" in html(chr(10).join(["```flow", "-> nowhere", "```"])))
+check("an empty flow block is refused",
+      "<pre>" in html(chr(10).join(["```flow", "```"])))
+check("normal code blocks are untouched",
+      "<svg" not in html(chr(10).join(["```sh", "ls -la", "```"])))
+
+
 print("\ntermination — every branch must advance the cursor")
 # A row of pipes with no separator row once spun forever: the table handler
 # declined it and the paragraph handler treated it as a block start, so

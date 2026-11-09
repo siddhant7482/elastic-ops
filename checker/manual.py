@@ -105,6 +105,26 @@ h1{margin:0;font-size:30px;line-height:1.15;letter-spacing:-.02em}
 .doc .callout.note{border-left-color:#1B5BA6;background:#E7EFF9}
 .doc .callout.note>b{color:#1B5BA6}
 .empty{color:#7A8BA2;font-style:italic;font-size:14px}
+/* Diagrams. The animation is inline here too: this file has to work with no
+   network and no stylesheet of its own, and a diagram that only moves in the
+   portal is a diagram that is dead in the copy you open during an incident. */
+@keyframes dashflow{to{stroke-dashoffset:-28}}
+.flowwrap{margin:12px 0 0;border:1px solid #D8DCE2;background:#F3F0E5;
+  padding:11px;overflow-x:auto}
+.flowwrap svg.flow{display:block;height:auto;max-width:100%}
+svg .bx{fill:#FCFBF6;stroke:#AEBCCD;stroke-width:1.2}
+svg .bx-a{fill:#E7EFF9;stroke:#1B5BA6;stroke-width:1.3}
+svg .bx-r{fill:#F9EAE6;stroke:#A1342A;stroke-width:1.3;stroke-dasharray:5 4}
+svg .fl{fill:none;stroke-width:1.35;stroke-dasharray:7 7;
+  animation:dashflow 1.05s linear infinite}
+svg .ft{font-size:12px;font-weight:600}
+svg .fs{font-size:9.5px;font-family:ui-monospace,Menlo,Consolas,monospace}
+svg .fa{font-size:9.5px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  fill:#7A8BA2}
+svg .fg{font-size:9px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  fill:#7A8BA2;letter-spacing:.16em;text-transform:uppercase}
+@media (prefers-reduced-motion:reduce){svg .fl{animation:none}}
+@media print{svg .fl{animation:none}}
 .findings{margin-top:26px;border:1px solid #A1342A;background:#F9EAE6;padding:14px 18px}
 .findings h2{margin:0 0 8px;font-size:14px;letter-spacing:.12em;text-transform:uppercase;
   color:#A1342A}

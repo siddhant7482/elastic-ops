@@ -182,6 +182,15 @@ def render(src, resolve=None, media_prefix="", link_prefix="/citadel/r/"):
                 buf.append(lines[i])
                 i += 1
             i += 1                                     # consume closing fence
+            if lang.lower() == "flow":
+                # A diagram, not code. If it will not parse it falls
+                # through to a code block rather than being guessed at:
+                # a wrong diagram is worse than a visible one you can
+                # still read.
+                svg = _flow("\n".join(buf))
+                if svg:
+                    out.append(svg)
+                    continue
             cls = f' class="lang-{esc(lang)}"' if lang else ""
             out.append("<pre><code{}>{}</code></pre>".format(cls, esc("\n".join(buf))))
             continue
@@ -323,3 +332,144 @@ def plain(src):
     body = _LINK.sub(r"\1", body)
     body = re.sub(r"[#>*`|_-]+", " ", body)
     return re.sub(r"\s+", " ", body).strip()
+
+
+# --------------------------------------------------------------- diagrams
+
+_FLOW_NODE = re.compile(r"^(?P<label>[^|]+?)(?:\s*\|\s*(?P<sub>[^|]*))?"
+                        r"(?:\s*\|\s*(?P<style>accent|warn|plain))?\s*$")
+
+FLOW_STYLE = {
+    "plain":  ("bx", "var(--ink)", "var(--ink-3)"),
+    "accent": ("bx-a", "var(--acc)", "var(--acc)"),
+    "warn":   ("bx-r", "var(--red)", "var(--red)"),
+}
+
+
+def _flow_node(text):
+    m = _FLOW_NODE.match(text.strip())
+    if not m:
+        return None
+    return (m.group("label").strip(),
+            (m.group("sub") or "").strip(),
+            m.group("style") or "plain")
+
+
+def _flow(src):
+    """A ```flow block into an animated SVG.
+
+    The source stays plain text, so a change to the architecture shows up in a
+    diff as the line that moved. An image would change silently, which is the
+    whole reason this is a small language rather than a PNG.
+
+    Grammar, deliberately tiny:
+
+        title: Where WinMan runs      an optional caption
+        Label | sub | accent          a node in the main chain
+        -> label on the arrow         an arrow to the next node
+        => Label | sub                a branch off the previous node
+
+    Anything it cannot parse is left as a code block rather than guessed at.
+    """
+    title, chain, branches = "", [], {}
+    for raw in (src or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.lower().startswith("title:"):
+            title = line.split(":", 1)[1].strip()
+            continue
+        if line.startswith("=>"):
+            node = _flow_node(line[2:])
+            if node is None or not chain:
+                return None
+            # key by position among the NODES, not among the raw lines:
+            # the render loop walks nodes, so an arrow in between would
+            # shift the index and the branch would vanish without a word
+            here = sum(1 for x in chain if x[0] != "__arrow__") - 1
+            branches.setdefault(here, []).append(node)
+            continue
+        if line.startswith("->"):
+            if not chain:
+                return None
+            chain.append(("__arrow__", line[2:].strip(), ""))
+            continue
+        node = _flow_node(line)
+        if node is None:
+            return None
+        chain.append(node)
+
+    nodes = [n for n in chain if n[0] != "__arrow__"]
+    if len(nodes) < 1:
+        return None
+
+    labels, seq = [], []
+    for item in chain:
+        if item[0] == "__arrow__":
+            labels.append(item[1])
+        else:
+            if len(labels) < len(seq):
+                labels.append("")
+            seq.append(item)
+
+    BW, BH, GAP = 150, 54, 56
+    fan = max((len(v) for v in branches.values()), default=0)
+    rows = max(1, fan)
+    top = 26 if title else 8
+    cy = top + (BH // 2)
+    height = top + BH + 16 + (rows * (BH + 10) if fan else 0)
+    width = len(seq) * BW + max(0, len(seq) - 1) * GAP + 24
+    if fan:
+        width += BW + GAP
+
+    out = ['<svg class="flow" viewBox="0 0 %d %d" role="img" '
+           'preserveAspectRatio="xMinYMin meet" aria-label="%s">'
+           % (width, height, esc(title or "architecture diagram"))]
+    out.append('<defs><marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" '
+               'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+               '<path d="M0 0 L10 5 L0 10 z" fill="var(--acc)"/></marker>'
+               '<marker id="fr" viewBox="0 0 10 10" refX="9" refY="5" '
+               'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+               '<path d="M0 0 L10 5 L0 10 z" fill="var(--red)"/></marker>'
+               "</defs>")
+    if title:
+        out.append(f'<text class="fg" x="12" y="16">{esc(title)}</text>')
+
+    def box(x, y, label, sub, style):
+        cls, fill, subfill = FLOW_STYLE.get(style, FLOW_STYLE["plain"])
+        s = ['<rect class="%s" x="%d" y="%d" width="%d" height="%d"/>'
+             % (cls, x, y, BW, BH)]
+        s.append('<text class="ft" x="%d" y="%d" fill="%s">%s</text>'
+                 % (x + 12, y + 22, fill, esc(label[:26])))
+        if sub:
+            s.append('<text class="fs" x="%d" y="%d" fill="%s">%s</text>'
+                     % (x + 12, y + 39, subfill, esc(sub[:30])))
+        return "".join(s)
+
+    def arrow(x1, y1, x2, y2, red=False, dur=2.2):
+        d = "M%d %d L%d %d" % (x1, y1, x2, y2)
+        col = "var(--red)" if red else "var(--acc)"
+        mk = "fr" if red else "fa"
+        s = [f'<path class="fl" d="{d}" stroke="{col}" marker-end="url(#{mk})"/>']
+        s.append(f'<circle r="2.6" fill="{col}"><animateMotion dur="{dur:.1f}s" '
+                 f'repeatCount="indefinite" path="{d}"/></circle>')
+        return "".join(s)
+
+    for i, (label, sub, style) in enumerate(seq):
+        x = 12 + i * (BW + GAP)
+        out.append(box(x, top, label, sub, style))
+        if i:
+            out.append(arrow(x - GAP, cy, x - 4, cy, dur=1.8 + i * 0.2))
+            lab = labels[i - 1] if i - 1 < len(labels) else ""
+            if lab:
+                out.append('<text class="fa" x="%d" y="%d">%s</text>'
+                           % (x - GAP + 2, top - 6, esc(lab[:26])))
+        for j, (bl, bs, bst) in enumerate(branches.get(i, [])):
+            bx = x + BW + GAP
+            by = top + BH + 16 + j * (BH + 10)
+            out.append(box(bx, by, bl, bs, bst))
+            out.append(arrow(x + BW // 2, top + BH + 2, bx - 4, by + BH // 2,
+                             red=(bst == "warn"), dur=2.4 + j * 0.3))
+
+    out.append("</svg>")
+    return '<div class="flowwrap">{}</div>'.format("".join(out))

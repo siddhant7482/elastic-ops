@@ -30,6 +30,11 @@ import pool
 from engine import in_maintenance, iso, log
 from store import now
 
+# What a record may reference as an image. Deliberately short: these are
+# served straight from the document tree, so the list is the whole of the
+# trust boundary.
+MEDIA_OK = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+
 MAX_BODY = 256 * 1024
 STARTED = now()
 
@@ -165,8 +170,13 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir,
             if not os.path.isfile(path):
                 return self._send(404, {"error": "not found"})
             ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            # The pages are the application. A deploy that lands correctly and
+            # then serves yesterday's HTML out of a browser cache looks exactly
+            # like a deploy that did not land, and costs an hour to work out.
+            # Assets are fingerprinted by nothing, so they get the same rule.
+            extra = [("Cache-Control", "no-cache, must-revalidate")]                 if ctype.startswith("text/html") else                 [("Cache-Control", "max-age=300")]
             with open(path, "rb") as fh:
-                self._send(200, fh.read(), ctype)
+                self._send(200, fh.read(), ctype, extra)
 
         # -- routing -----------------------------------------------------
         def do_HEAD(self):
@@ -226,6 +236,27 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir,
             # Citadel is one page that routes itself. /citadel/r/hst-pep is a
             # real URL you can send someone, so every path under /citadel
             # serves the same file and the page reads the rest.
+            # Images a record refers to. Served from the document tree, not
+            # from web_dir: they are content, they live with the markdown,
+            # and they are versioned with it.
+            if path.startswith("/citadel/media/"):
+                if docs is None or not docs.root:
+                    return self._send(404, {"error": "not found"})
+                rel = path[len("/citadel/media/"):]
+                if (not rel or ".." in rel.split("/")
+                        or not rel.lower().endswith(MEDIA_OK)):
+                    return self._send(403, {"error": "forbidden"})
+                root = os.path.realpath(os.path.join(docs.root, "media"))
+                full = os.path.realpath(os.path.join(root, rel))
+                if not full.startswith(root + os.sep):
+                    return self._send(403, {"error": "forbidden"})
+                if not os.path.isfile(full):
+                    return self._send(404, {"error": "not found"})
+                ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+                with open(full, "rb") as fh:
+                    return self._send(200, fh.read(), ctype,
+                                      [("Cache-Control", "max-age=3600")])
+
             if path == "/citadel" or path.startswith("/citadel/"):
                 return self._static("citadel.html")
 

@@ -266,6 +266,18 @@ Body.
           any(x["shelf"] == "GST.1203" for x in of("orphaned")))
     check("a record bound to a missing host is orphaned",
           any(x["shelf"] == "HST.NOO" for x in of("orphaned")))
+    # A bind that only joins a check or a backup table is not an
+    # identity. Calling it orphaned sends someone hunting for a deleted
+    # object that the record never claimed to be.
+    nid_src = '+++' + chr(10) + 'title    = "non-identity"' + chr(10) + 'shelf    = "APP.NID"' + chr(10) + 'owner    = "siddhant"' + chr(10) + 'verified = "2099-01-01"' + chr(10) + '[bind]' + chr(10) + 'checks = ["nope"]' + chr(10) + '+++' + chr(10) + 'Body.'
+    cat.records["APP.NID"] = citadel.parse(nid_src, "app", "nid")
+    check("a non-identity binding never orphans",
+          not any(x["shelf"] == "APP.NID"
+                  for x in citadel.findings(cat, live)
+                  if x["kind"] == "orphaned"),
+          [x for x in citadel.findings(cat, live)
+           if x["shelf"] == "APP.NID"])
+    del cat.records["APP.NID"]
     check("a broken cross-reference is found",
           any("REG.NOPE" in x["what"] for x in of("broken-link")))
     check("a resolved cross-reference is not",

@@ -106,6 +106,9 @@ h2.vt{margin:0;font-family:var(--serif);font-size:26px;font-weight:600;letter-sp
 .counts span{display:block;font-family:var(--mono);font-size:8.5px;font-weight:500;
   letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
 .counts b{display:block;font-family:var(--mono);font-size:20px;font-weight:600;line-height:1.25}
+.counts b s{text-decoration:none;font-size:15px}
+.counts>div>s{display:block;text-decoration:none;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
 .cover{margin-top:14px;border:1px solid var(--ln);padding:11px 13px}
 .cover .hd{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);font-size:9px;
   letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);flex-wrap:wrap}
@@ -235,6 +238,16 @@ svg .fl{fill:none;stroke-width:1.35;stroke-dasharray:7 7;
   letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
 .err{margin-top:14px;border:1px solid var(--red);background:var(--red-bg);
   color:var(--red);padding:12px 14px;font-size:13px}
+
+/* ------------------------------------------------- diagrams in records */
+.flowwrap{margin-top:12px;border:1px solid var(--ln);background:var(--paper);
+  padding:12px 13px;overflow-x:auto}
+.flowwrap svg.flow{display:block;height:auto;max-width:100%}
+svg .ft{font-size:12px;font-weight:600;font-family:var(--sans)}
+svg .fs{font-size:9.5px;font-family:var(--mono)}
+svg .fa{font-size:9.5px;font-family:var(--mono);fill:var(--ink-3)}
+svg .fg{font-size:9px;font-family:var(--mono);fill:var(--ink-3);
+  letter-spacing:.16em;text-transform:uppercase}
 
 /* ---------------------------------------------------------- editor */
 .fm{border:1px solid var(--ln);background:var(--paper);margin-top:13px}
@@ -545,7 +558,10 @@ function vCatalogue(){
     S.summary=sum;
     var c=sum.coverage||{have:0,total:0}, gap=c.total-c.have;
     var counts=KINDS.map(function(k){
-      return "<div><span>"+k[1]+"</span><b>"+((sum.counts||{})[k[0]]||0)+"</b></div>"}).join("");
+      var have=(sum.counts||{})[k[0]]||0, all=(sum.live||{})[k[0]]||0;
+      return "<div><span>"+k[1]+"</span><b>"+have+
+        '<s style="color:var(--ink-3);font-weight:400">/'+all+"</s></b>"+
+        "<s>documented</s></div>"}).join("");
     return '<div class="crumb">Catalogue</div><div class="vh">'+
       '<h2 class="vt">The estate, catalogued</h2></div>'+
       sysDiagram(sum)+
@@ -575,7 +591,8 @@ function vIndex(){
                  :'<span class="sm q">no record</span>';
       var state=rec?(rec.overdue?'<span class="tag t-half">stale</span>':
                      '<span class="tag t-ok">'+esc(rec.verified||"—")+"</span>")
-                  :'<span class="tag t-no">undocumented</span>';
+                  :(CAN_WRITE&&r.create ? mkBtn(r.create)
+                    : '<span class="tag t-no">undocumented</span>');
       return "<tr><td>"+mark+"</td><td><b>"+esc(r.label)+"</b></td>"+
         '<td class="n">'+esc(r.detail||"—")+"</td>"+
         '<td class="n">'+esc(rec?(rec.owner||"—"):"—")+"</td>"+
@@ -660,9 +677,12 @@ function vHealth(){
     var rows=f.map(function(x){
       return "<div>"+sev(x.severity)+'<span class="ds"><b>'+
         esc(x.kind.replace(/-/g," "))+".</b> "+esc(x.what)+"</span>"+
-        (x.shelf?'<span class="rt"><a class="btn" href="/citadel/r/'+
-          esc(x.shelf.toLowerCase().replace(/[^a-z0-9]+/g,"-"))+
-          '" data-link>open</a></span>':"")+"</div>"}).join("");
+        '<span class="rt">'+
+          (CAN_WRITE&&x.create?mkBtn(x.create):"")+
+          (x.shelf&&!x.create?'<a class="btn" href="/citadel/r/'+
+            esc(x.shelf.toLowerCase().replace(/[^a-z0-9]+/g,"-"))+
+            '" data-link>open</a>':"")+
+        "</span></div>"}).join("");
     var paging=f.filter(function(x){return x.severity==="page"}).length;
     return '<div class="crumb">Health</div><div class="vh">'+
       '<h2 class="vt">Catalogue health</h2></div>'+
@@ -924,6 +944,25 @@ function vActivity(){
       "is the difference between written down and written down somewhere that "+
       "survives this host.</div></div>"})}
 
+function mkBtn(c){
+  return '<button class="btn p" data-kind2="'+esc(c.kind)+'" data-key2="'+
+    esc(c.key)+'">create record</button>'}
+
+function createRecord(kind,key,btn){
+  if(btn){btn.disabled=true;btn.textContent="creating...";}
+  post("/api/citadel/create",{kind:kind,key:key}).then(function(r){
+    if(r.code===200&&r.body.slug){
+      S.summary=null;
+      // Straight into the editor on the scaffold. The thing that stops
+      // documentation being written is the blank page, so there is never a
+      // blank page: the front matter and bindings are already correct.
+      go("/citadel/e/"+r.body.slug);
+      return}
+    if(btn){
+      btn.disabled=false;
+      btn.textContent=(r.body&&r.body.error)?"failed":"create record";
+      btn.title=(r.body&&r.body.error)||("HTTP "+r.code)}})}
+
 /* ------------------------------------------------------------- routing */
 function route(){
   var p=location.pathname.replace(/\/+$/,"");
@@ -968,6 +1007,10 @@ function render(){
 document.addEventListener("click",function(e){
   var a=e.target.closest&&e.target.closest("[data-link]");
   if(a){e.preventDefault();closeSearch();go(a.getAttribute("href"));return}
+  var mk=e.target.closest&&e.target.closest("[data-kind2]");
+  if(mk){e.preventDefault();closeSearch();
+    createRecord(mk.getAttribute("data-kind2"),mk.getAttribute("data-key2"),mk);
+    return}
   var b=e.target.closest&&e.target.closest("[data-nav],[data-kind]");
   if(!b)return;
   var nav=b.getAttribute("data-nav"), kind=b.getAttribute("data-kind");
