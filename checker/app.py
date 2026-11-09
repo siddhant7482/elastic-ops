@@ -25,12 +25,14 @@ the thing that watches the estate should not itself be a dependency problem.
 import os
 import sys
 import threading
+import time
 
 import api
 import auth as authmod
 import pool
 from engine import (Engine, Notifier, load_config, load_inventory, log,
                     placeholder)
+import citadel
 from store import Portal, Store
 
 
@@ -225,6 +227,34 @@ def matrix_cli(cfg, args):
     return False
 
 
+
+def _doc_sync(docs, every, manual_every=86400):
+    """Keep the document tree level with its remote, on a timer.
+
+    Never from a request: a save must not wait for the network, and a push
+    that cannot reach GitHub is a banner rather than a failed save.
+    """
+    last_manual = 0
+    while True:
+        time.sleep(max(30, int(every)))
+        try:
+            docs.sync_tick()
+        except Exception as e:                                   # noqa: BLE001
+            log(f"citadel sync: {e}")
+        # The offline manual. Rebuilt on a plain elapsed-time basis rather
+        # than at a fixed hour: a host that was off overnight should still
+        # produce one, and the copy in the repository is the thing that
+        # survives this host.
+        if time.time() - last_manual >= manual_every:
+            last_manual = time.time()
+            try:
+                sha, why = docs.publish_manual()
+                if sha:
+                    log(f"citadel: offline manual rebuilt — {why}")
+            except Exception as e:                               # noqa: BLE001
+                log(f"citadel manual: {e}")
+
+
 def main():
     args = sys.argv[1:]
     # Refuse before touching the database or binding a port: starting a second
@@ -261,7 +291,26 @@ def main():
     if not os.path.isabs(web_dir):
         web_dir = os.path.join(here, web_dir)
 
-    handler = api.make_handler(cfg, inventory, store, portal, engine, auth, web_dir)
+    docs = citadel.Service(s["docs_root"], store, portal, inventory,
+                           interval=s["docs_rescan"])
+    found = docs.scan(force=True)
+    log(f"citadel: {len(docs.cat.records)} records from {s['docs_root']}"
+        + ("" if found else " — nothing read, serving the last cache"))
+    for err in docs.cat.errors[:3]:
+        log(f"citadel: {err}")
+
+    engine.docs = docs          # so the check loop can sweep the catalogue
+    writable, why = docs.writable()
+    log("citadel: " + ("writable, branch " + str(docs.repo_status().get("branch"))
+                       if writable else "read-only — " + why))
+    if writable:
+        docs.sync_log()
+        threading.Thread(target=_doc_sync,
+                         args=(docs, s["docs_sync"], s["docs_manual_every"]),
+                         daemon=True).start()
+
+    handler = api.make_handler(cfg, inventory, store, portal, engine, auth,
+                               web_dir, docs=docs)
     srv = pool.Pool(("0.0.0.0", s["listen_port"]), handler,
                     workers=s["http_workers"], backlog=s["http_backlog"],
                     idle=s["http_idle"], shed_after=s["http_shed_after"])

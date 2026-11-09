@@ -24,6 +24,8 @@ import mimetypes
 import os
 import urllib.parse
 
+import citadel
+import markdown
 import pool
 from engine import in_maintenance, iso, log
 from store import now
@@ -52,7 +54,8 @@ def _build_stamp():
 BUILD = _build_stamp()
 
 
-def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
+def make_handler(cfg, inventory, store, portal, engine, auth, web_dir,
+                 docs=None):
     ingest_token = cfg["settings"]["ingest_token"]
     # Login is the one route whose cost is measured in tens of megabytes rather
     # than microseconds, so the number of them hashing at once is capped
@@ -220,6 +223,12 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
             if path.startswith("/assets/"):
                 return self._static(path)
 
+            # Citadel is one page that routes itself. /citadel/r/hst-pep is a
+            # real URL you can send someone, so every path under /citadel
+            # serves the same file and the page reads the rest.
+            if path == "/citadel" or path.startswith("/citadel/"):
+                return self._static("citadel.html")
+
             if path.startswith("/api/"):
                 return self._api_get(path, qs, user)
 
@@ -350,6 +359,53 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
                     e["ts_iso"] = iso(e["ts"])
                 return self._send(200, {"events": evs})
 
+            # -- citadel ---------------------------------------------
+            if path.startswith("/api/citadel/"):
+                if docs is None:
+                    return self._send(503, {"error": "catalogue not configured"})
+                docs.scan()
+                tail = path[len("/api/citadel/"):]
+
+                if tail == "summary":
+                    return self._send(200, docs.summary())
+                if tail == "health":
+                    return self._send(200, {"findings": docs.findings()})
+                if tail == "search":
+                    q = qs.get("q", [""])[0]
+                    return self._send(200, {"q": q, "results": docs.search(q),
+                                            "fts": store.has_fts})
+                if tail.startswith("index/"):
+                    kind = tail[len("index/"):]
+                    if kind not in citadel.KINDS:
+                        return self._send(404, {"error": "no such kind"})
+                    return self._send(200, {"kind": kind,
+                                            "rows": docs.index(kind)})
+                if tail == "manual":
+                    # Served inline so you can check what the nightly job
+                    # will commit, without waiting for the night.
+                    return self._send(200, docs.manual_html().encode(),
+                                      "text/html; charset=utf-8")
+                if tail == "status":
+                    return self._send(200, docs.repo_status())
+                if tail == "activity":
+                    return self._send(200, {"commits": docs.activity()})
+                if tail.startswith("edit/"):
+                    src = docs.load_for_edit(tail[len("edit/"):])
+                    if src is None:
+                        return self._send(404, {"error": "no such record"})
+                    return self._send(200, src)
+                if tail.startswith("history/"):
+                    h = docs.history(tail[len("history/"):])
+                    if h is None:
+                        return self._send(404, {"error": "no such record"})
+                    return self._send(200, h)
+                if tail.startswith("record/"):
+                    rec = docs.record(tail[len("record/"):])
+                    if rec is None:
+                        return self._send(404, {"error": "no such record"})
+                    return self._send(200, rec)
+                return self._send(404, {"error": "not found"})
+
             if path == "/api/incidents":
                 return self._send(200, {"incidents": portal.incidents()})
             if path == "/api/followups":
@@ -440,6 +496,64 @@ def make_handler(cfg, inventory, store, portal, engine, auth, web_dir):
         # -- write API ---------------------------------------------------
         def _api_post(self, path, user):
             who = user["display"] or user["username"]
+
+            # -- citadel ---------------------------------------------
+            if path.startswith("/api/citadel/"):
+                if docs is None:
+                    return self._send(503, {"error": "catalogue not configured"})
+                tail = path[len("/api/citadel/"):]
+                d = self._json() if tail != "push" else {}
+                try:
+                    if tail == "save":
+                        out = docs.save(
+                            (d.get("slug") or "").strip(),
+                            d.get("body") or "",
+                            {k: d.get(k) for k in citadel.EDITABLE if k in d},
+                            d.get("blob"), user["username"],
+                            (d.get("summary") or "").strip())
+                        return self._send(200, out)
+                    if tail == "create":
+                        return self._send(200, docs.create(
+                            (d.get("kind") or "").strip(),
+                            (d.get("key") or "").strip(),
+                            user["username"], d.get("title")))
+                    if tail == "archive":
+                        return self._send(200, docs.archive(
+                            (d.get("slug") or "").strip(), user["username"],
+                            (d.get("reason") or "").strip()))
+                    if tail == "preview":
+                        # Rendered by the same function that renders a saved
+                        # record, so what you see is what will be stored.
+                        # A second renderer in the browser would drift, and
+                        # the day it drifted would be the day someone saved
+                        # markup they had never actually seen rendered.
+                        html, links = markdown.render(
+                            d.get("body") or "", resolve=docs.cat.exists,
+                            media_prefix="/citadel/media/")
+                        return self._send(200, {
+                            "html": html,
+                            "links": [{"shelf": sh, "resolved": ok}
+                                      for sh, ok in links]})
+                    if tail == "manual":
+                        sha, why = docs.publish_manual(user["username"],
+                                                       force=bool(d.get("force")))
+                        return self._send(200, {"sha": sha, "detail": why})
+                    if tail == "push":
+                        ok, msg = docs.push()
+                        return self._send(200 if ok else 502,
+                                          {"ok": ok, "detail": msg})
+                except citadel.repo.Conflict as e:
+                    # 409 with both sides. Nothing was written, nothing was
+                    # merged: the person decides which version survives.
+                    return self._send(409, {
+                        "error": "conflict", "path": e.path,
+                        "expected": e.expected, "actual": e.actual,
+                        "theirs": e.theirs})
+                except citadel.repo.RepoError as e:
+                    return self._send(409 if "exists" in str(e)
+                                      or "taken" in str(e) else 400,
+                                      {"error": str(e)})
+                return self._send(404, {"error": "not found"})
 
             if path == "/api/incidents":
                 d = self._json()

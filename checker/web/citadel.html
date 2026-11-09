@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Citadel — Elastic Group estate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Citadel keeps its own visual world: gridded eggshell, blue ink. The console
+   is a glance surface, this is a reading surface, and mistaking written prose
+   for measured state is the failure that matters. One light theme on purpose
+   — this must look the same for everyone, whatever their OS is set to. */
+:root{
+  --paper:#F3F0E5; --leaf:#FCFBF6; --sheet:#FFFFFE;
+  --grid-1:#E6E4D7; --grid-2:#CCD7E5;
+  --ink:#102A4E; --ink-2:#39526F; --ink-3:#7A8BA2;
+  --ln:#D8DCE2; --ln-2:#AEBCCD;
+  --acc:#1B5BA6; --acc-bg:#E7EFF9;
+  --red:#A1342A; --red-bg:#F9EAE6;
+  --grn:#1D6A4C; --grn-bg:#E5F1EA;
+  --amb:#8A5B10; --amb-bg:#F7F0DD;
+  --serif:"IBM Plex Serif",Georgia,serif;
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light; background:#F3F0E5;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{margin:0;color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid-2) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid-2) 1px,transparent 1px),
+    linear-gradient(var(--grid-1) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid-1) 1px,transparent 1px);
+  background-size:120px 120px,120px 120px,24px 24px,24px 24px;
+  background-attachment:fixed}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:var(--acc)}
+.gut{padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* ---------------------------------------------------------- chrome */
+.topbar{position:sticky;top:0;z-index:20;background:var(--sheet);
+  border-bottom:1.5px solid var(--ink-2)}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:9px;
+  border-bottom:1px solid var(--ln)}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:inherit;
+  white-space:nowrap;padding-right:13px;border-right:1px solid var(--ln)}
+.brand:hover .keep{fill:var(--acc-bg)}
+.mark{width:30px;height:30px;flex:none;display:block}
+.wm{display:flex;flex-direction:column;gap:4px;line-height:1}
+.wm b{font-family:var(--serif);font-size:17.5px;font-weight:600;letter-spacing:-.02em}
+.wm i{font-style:normal;font-family:var(--mono);font-size:7.5px;font-weight:500;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--ink-3)}
+.sbox{margin-left:auto;flex:0 1 290px;min-width:150px;display:flex;align-items:center;
+  gap:7px;border:1px solid var(--ln-2);background:var(--paper);padding:4px 9px;cursor:text}
+.sbox:hover{border-color:var(--acc);background:var(--acc-bg)}
+.sbox span{color:var(--ink-3);font-family:var(--mono);font-size:11.5px}
+.sbox input{flex:1;min-width:0;border:0;background:none;outline:none;cursor:text;
+  font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.sbox kbd{font-family:var(--mono);font-size:9px;border:1px solid var(--ln-2);
+  border-radius:2px;padding:0 4px;color:var(--ink-3);flex:none}
+.who{display:flex;align-items:center;gap:8px;white-space:nowrap;font-family:var(--mono);
+  font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.who b{font-size:11.5px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink)}
+.who a{color:var(--ink-3);text-decoration:none}
+.who a:hover{color:var(--acc)}
+nav.main{display:flex;flex-wrap:wrap;background:var(--sheet)}
+nav.main button{font-family:var(--mono);font-size:9.5px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);padding:8px 14px;
+  border-right:1px solid var(--ln)}
+nav.main button:first-child{border-left:1px solid var(--ln)}
+nav.main button:hover{color:var(--acc);background:var(--acc-bg)}
+nav.main button.on{color:var(--acc);background:var(--acc-bg);font-weight:600;
+  box-shadow:inset 0 -2px 0 var(--acc)}
+nav.main button i{font-style:normal;color:var(--ink-3);margin-left:5px;font-size:8.5px}
+nav.main button.on i{color:var(--acc)}
+nav.kinds{display:flex;flex-wrap:wrap;background:var(--paper);border-top:1px solid var(--ln)}
+nav.kinds button{font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);padding:5px 13px}
+nav.kinds button:hover{color:var(--acc)}
+nav.kinds button.on{color:var(--acc);font-weight:600;box-shadow:inset 0 -2px 0 var(--acc)}
+.banner{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:12px;
+  font-family:var(--mono);border-bottom:1px solid currentColor;flex-wrap:wrap}
+.banner.w{background:var(--amb-bg);color:var(--amb)}
+.banner.r{background:var(--red-bg);color:var(--red)}
+.view{padding-block:22px 80px}
+
+/* ---------------------------------------------------------- blocks */
+.counts,.cover,.rows,.tw,.rmeta,.hist,.mn,.fig2{background:var(--leaf);
+  box-shadow:0 1px 0 rgba(16,42,78,.05)}
+.crumb{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3)}
+.crumb a{color:var(--ink-3);text-decoration:none}
+.crumb a:hover{color:var(--acc)}
+h2.vt{margin:0;font-family:var(--serif);font-size:26px;font-weight:600;letter-spacing:-.02em}
+.vh{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-top:5px}
+.vh .rt{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.sub{margin:10px 0 0;color:var(--ink-2);max-width:74ch;font-size:13.5px}
+.counts{display:flex;flex-wrap:wrap;border:1px solid var(--ln);margin-top:14px}
+.counts>div{flex:1 1 92px;min-width:0;padding:9px 12px;border-right:1px solid var(--ln)}
+.counts>div:last-child{border-right:0}
+.counts span{display:block;font-family:var(--mono);font-size:8.5px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.counts b{display:block;font-family:var(--mono);font-size:20px;font-weight:600;line-height:1.25}
+.cover{margin-top:14px;border:1px solid var(--ln);padding:11px 13px}
+.cover .hd{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);flex-wrap:wrap}
+.cover .hd b{margin-left:auto;color:var(--ink);font-size:11px;letter-spacing:0}
+.bar{margin-top:8px;height:16px;border:1px solid var(--ln-2);display:flex;
+  background:repeating-linear-gradient(90deg,transparent,transparent 11px,var(--ln) 11px,var(--ln) 12px)}
+.bar i{display:block;background:var(--acc-bg);border-right:1px solid var(--acc)}
+.bar i.m{background:var(--red-bg);border-right:0}
+.tw{overflow-x:auto;margin-top:14px;border:1px solid var(--ln)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:560px}
+th{text-align:left;font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:8px 12px;
+  background:var(--paper);border-bottom:1px solid var(--ln-2);white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink-2)}
+td+td,th+th{border-left:1px solid var(--ln)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--acc-bg)}
+.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.rows{border:1px solid var(--ln);margin-top:14px}
+.rows>div{display:flex;align-items:center;gap:10px;padding:8px 12px;
+  border-bottom:1px solid var(--ln);font-size:12.5px;flex-wrap:wrap}
+.rows>div:last-child{border-bottom:0}
+.rows .hd{background:var(--paper);font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.rows .ds{color:var(--ink-2);flex:1;min-width:130px}
+.rows .ds b{color:var(--ink)}
+.rows .rt{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.rows .mo{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.btn{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;padding:5px 11px;border:1px solid var(--ln-2);
+  background:var(--leaf);color:var(--ink-2);white-space:nowrap;text-decoration:none}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.btn.p{border-color:var(--acc);background:var(--acc);color:#FFF}
+.tag{display:inline-block;font-family:var(--mono);font-size:9px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;padding:1.5px 6px;white-space:nowrap;
+  border:1px solid currentColor}
+.t-ok{color:var(--grn);background:var(--grn-bg)}
+.t-no{color:var(--red);background:var(--red-bg)}
+.t-half{color:var(--amb);background:var(--amb-bg)}
+.t-i{color:var(--acc);background:var(--acc-bg)}
+.sm{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:.06em;padding:1.5px 6px;white-space:nowrap;color:var(--acc);
+  background:var(--acc-bg);border:1px solid var(--acc);text-decoration:none}
+a.sm:hover{background:var(--acc);color:#FFF}
+.sm.q{color:var(--red);background:none;border-style:dashed;border-color:var(--red)}
+.rmeta{display:flex;flex-wrap:wrap;margin-top:13px;border:1px solid var(--ln)}
+.rmeta div{flex:1 1 118px;min-width:0;padding:6px 11px;border-right:1px solid var(--ln);
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.rmeta div:last-child{border-right:0}
+.rmeta b{display:block;color:var(--ink-2);font-weight:600;font-size:11.5px}
+.panels{display:flex;flex-wrap:wrap;margin-top:13px;border:1px solid var(--acc);
+  box-shadow:0 1px 0 rgba(16,42,78,.05)}
+.panels>div{flex:1 1 112px;min-width:0;padding:8px 11px;border-right:1px solid var(--ln);
+  background:var(--acc-bg)}
+.panels>div:last-child{border-right:0}
+.panels span{display:block;font-family:var(--mono);font-size:8.5px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.panels b{display:block;font-family:var(--mono);font-size:14.5px;font-weight:600;
+  color:var(--ink);margin-top:2px}
+.panels s{display:block;text-decoration:none;font-family:var(--mono);font-size:9px;
+  color:var(--ink-3)}
+.pcap{margin-top:4px;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--acc)}
+.mn{margin-top:16px;display:grid;grid-template-columns:84px 1fr;gap:15px;
+  border:1px solid var(--ln);padding:13px 16px;font-size:13px;color:var(--ink-2)}
+.mn>.t{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--acc);padding-top:3px}
+.mn.w>.t{color:var(--amb)} .mn.r>.t{color:var(--red)} .mn.g>.t{color:var(--grn)}
+.mn b{color:var(--ink)}
+
+/* ---------------------------------------------------------- the document */
+.doc{margin-top:14px;background:var(--leaf);border:1px solid var(--ln);
+  padding:18px 22px;font-size:14px;color:var(--ink-2);
+  box-shadow:0 1px 0 rgba(16,42,78,.05)}
+.doc>*:first-child{margin-top:0}
+.doc h3{margin:20px 0 0;font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink)}
+.doc h4{margin:16px 0 0;font-family:var(--serif);font-size:14.5px;font-weight:600;color:var(--ink)}
+.doc h5{margin:14px 0 0;font-family:var(--mono);font-size:11px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.doc p{margin:7px 0 0;max-width:76ch}
+.doc ul,.doc ol{margin:8px 0 0;padding-left:21px;max-width:76ch}
+.doc li{margin-bottom:5px}
+.doc hr{border:0;border-top:1px solid var(--ln);margin:18px 0 0}
+.doc code{font-family:var(--mono);font-size:12px;background:var(--acc-bg);padding:1px 4px;
+  border-radius:2px;color:var(--ink)}
+.doc pre{margin:10px 0 0;padding:12px 14px;background:var(--paper);border:1px solid var(--ln);
+  overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.65}
+.doc pre code{background:none;padding:0}
+.doc blockquote{margin:10px 0 0;border-left:3px solid var(--ln-2);padding:2px 0 2px 13px;
+  color:var(--ink-3)}
+.doc .tw{margin-top:10px}
+.doc .callout{margin-top:10px;border-left:3px solid var(--amb);background:var(--amb-bg);
+  padding:8px 12px;font-size:13px}
+.doc .callout>b{display:block;color:var(--amb);font-family:var(--mono);font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px}
+.doc .callout.danger{border-left-color:var(--red);background:var(--red-bg)}
+.doc .callout.danger>b{color:var(--red)}
+.doc .callout.note{border-left-color:var(--acc);background:var(--acc-bg)}
+.doc .callout.note>b{color:var(--acc)}
+.doc img{max-width:100%;height:auto}
+
+/* ---------------------------------------------------------- live diagrams */
+@keyframes dashflow{to{stroke-dashoffset:-28}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.fig2{border:1px solid var(--ln);margin-top:14px}
+.fig2 .c{display:flex;gap:9px;align-items:baseline;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--acc);padding:8px 13px;
+  border-bottom:1px solid var(--ln)}
+.fig2 .c s{margin-left:auto;text-decoration:none;color:var(--ink-3)}
+.fig2 .pl{padding:12px 13px;overflow-x:auto;background:var(--paper)}
+.fig2 svg{display:block;width:100%;height:auto}
+svg text{font-family:var(--sans);fill:var(--ink)}
+svg .bx{fill:var(--leaf);stroke:var(--ln-2);stroke-width:1.2}
+svg .bx-a{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.3}
+svg .bx-r{fill:var(--red-bg);stroke:var(--red);stroke-width:1.3;stroke-dasharray:5 4;
+  animation:pulse 1.7s ease-in-out infinite}
+svg .tt{font-size:11.5px;font-weight:600}
+svg .tk{font-size:9.5px;font-family:var(--mono);fill:var(--ink-3)}
+svg .al{font-size:9.5px;font-family:var(--mono);fill:var(--ink-3)}
+svg .fl{fill:none;stroke-width:1.35;stroke-dasharray:7 7;
+  animation:dashflow 1.05s linear infinite}
+@media (prefers-reduced-motion:reduce){
+  svg .fl{animation:none;stroke-dasharray:5 4}
+  svg .bx-r{animation:none}
+}
+.boot{padding:60px 0;text-align:center;font-family:var(--mono);font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.err{margin-top:14px;border:1px solid var(--red);background:var(--red-bg);
+  color:var(--red);padding:12px 14px;font-size:13px}
+
+/* ---------------------------------------------------------- editor */
+.fm{border:1px solid var(--ln);background:var(--paper);margin-top:13px}
+.fmr{display:flex;flex-wrap:wrap}
+.fm .f{flex:1 1 150px;min-width:0;padding:7px 12px;border-right:1px solid var(--ln);
+  border-bottom:1px solid var(--ln)}
+.fm .f:last-child{border-right:0}
+.fm .f span{display:block;font-family:var(--mono);font-size:8.5px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.fm .f input{display:block;width:100%;font-family:var(--mono);font-size:12px;
+  color:var(--ink);background:var(--leaf);border:1px solid var(--ln-2);
+  padding:3px 7px;margin-top:3px;outline:none}
+.fm .f input:focus{border-color:var(--acc)}
+.bindrow{display:flex;align-items:center;gap:7px;padding:8px 12px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.bindrow .rt{margin-left:auto}
+.bchip{font-family:var(--mono);font-size:10px;padding:1.5px 6px;
+  border:1px solid var(--grn);background:var(--grn-bg);color:var(--grn)}
+.tbar{display:flex;flex-wrap:wrap;align-items:center;background:var(--paper);
+  border:1px solid var(--ln);border-top:0}
+.tbar button{font-family:var(--mono);font-size:10px;font-weight:600;
+  color:var(--ink-2);padding:7px 10px;border-right:1px solid var(--ln)}
+.tbar button:hover{background:var(--acc-bg);color:var(--acc)}
+.tbar button.k{color:var(--acc)}
+.tbar .sp{margin-left:auto;padding:7px 11px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.split{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--ln);
+  border-top:0;background:var(--leaf)}
+.split>div{min-width:0;padding:12px 14px}
+.split>div:first-child{border-right:1px solid var(--ln);background:var(--paper)}
+.pane-k{display:flex;gap:8px;font-family:var(--mono);font-size:8.5px;font-weight:600;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);padding-bottom:8px;
+  border-bottom:1px solid var(--ln);margin-bottom:10px}
+.pane-k s{margin-left:auto;text-decoration:none}
+textarea.src{width:100%;min-height:380px;resize:vertical;border:1px solid var(--ln-2);
+  background:var(--leaf);color:var(--ink-2);font-family:var(--mono);font-size:11.5px;
+  line-height:1.75;padding:10px 12px;outline:none}
+textarea.src:focus{border-color:var(--acc)}
+pre.cmp{margin:0;font-family:var(--mono);font-size:11px;line-height:1.7;
+  white-space:pre-wrap;word-break:break-word;color:var(--ink-2);max-height:340px;
+  overflow:auto}
+.savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;
+  border:1px solid var(--acc);border-top:0;background:var(--acc-bg)}
+.savebar .req{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--acc);font-weight:600}
+.savebar input{flex:1 1 200px;min-width:0;font-family:var(--mono);font-size:11.5px;
+  background:var(--leaf);border:1px solid var(--acc);padding:5px 9px;color:var(--ink);
+  outline:none}
+.savebar .who2{font-family:var(--mono);font-size:10px;color:var(--ink-3);flex-basis:100%}
+.savebar .btn[disabled]{opacity:.42;cursor:not-allowed}
+kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--ln-2);
+  border-bottom-width:2px;border-radius:2px;padding:0 4px;color:var(--ink-2)}
+.hist{border:1px solid var(--ln);margin-top:14px;background:var(--leaf);
+  box-shadow:0 1px 0 rgba(16,42,78,.05)}
+.hist>div{display:flex;align-items:baseline;gap:10px;padding:8px 12px;
+  border-bottom:1px solid var(--ln);font-size:12.5px;flex-wrap:wrap}
+.hist>div:last-child{border-bottom:0}
+.hist .hd{background:var(--paper);font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.hist .dt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+  white-space:nowrap;min-width:106px}
+.hist .au{font-family:var(--mono);font-size:11px;color:var(--ink);font-weight:600;
+  min-width:58px}
+.hist .sy{flex:1;min-width:140px;color:var(--ink-2)}
+.hist .sh{font-family:var(--mono);font-size:10.5px;color:var(--acc);white-space:nowrap}
+.hist .vi{font-family:var(--mono);font-size:9px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.filters .rt{margin-left:auto;font-family:var(--mono);font-size:10.5px}
+@media (max-width:760px){.split{grid-template-columns:1fr}
+  .split>div:first-child{border-right:0;border-bottom:1px solid var(--ln)}}
+
+/* ---------------------------------------------------------- search */
+.ovl{position:fixed;inset:0;background:rgba(16,42,78,.34);z-index:50;
+  padding:60px 16px 16px;overflow-y:auto}
+.ovl .bx2{max-width:620px;margin-inline:auto;border:1px solid var(--acc);
+  background:var(--leaf);box-shadow:0 18px 50px rgba(16,42,78,.22)}
+.ovl .q{display:flex;align-items:center;gap:10px;padding:11px 14px;
+  border-bottom:1px solid var(--ln)}
+.ovl .q input{flex:1;min-width:0;border:0;background:none;outline:none;
+  font-family:var(--mono);font-size:15px;color:var(--ink)}
+.ovl .q s{text-decoration:none;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3)}
+.sgrp{padding:8px 14px;border-bottom:1px solid var(--ln)}
+.sgrp:last-child{border-bottom:0}
+.sgrp .k{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3)}
+.sgrp a{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.5px;
+  color:var(--ink-2);text-decoration:none;flex-wrap:wrap}
+.sgrp a:hover{background:var(--acc-bg);margin:0 -14px;padding:4px 14px}
+.sgrp a b{color:var(--ink)}
+
+@media (max-width:620px){
+  .view{padding-block:16px 48px}
+  .mn{grid-template-columns:1fr;gap:4px}
+  table{min-width:430px}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="top gut">
+    <a class="brand" href="/citadel" data-link aria-label="Citadel, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" fill="var(--acc)"/>
+        <path class="keep" fill="var(--paper)"
+          d="M5 27 V6 H10 V11 H13.5 V6 H18.5 V11 H22 V6 H27 V27 Z"/>
+        <rect x="5" y="15.6" width="22" height="1.5" fill="var(--acc)"/>
+        <rect x="5" y="20.8" width="22" height="1.5" fill="var(--acc)"/>
+      </svg>
+      <span class="wm"><b>Citadel</b><i>Elastic Group estate</i></span>
+    </a>
+    <div class="sbox" id="sboxOpen">
+      <span>/</span>
+      <input id="sTop" placeholder="search the catalogue" readonly>
+      <kbd>&#8629;</kbd>
+    </div>
+    <div class="who"><a href="/">&larr; console</a></div>
+  </div>
+  <nav class="main gut" id="navMain"></nav>
+  <div id="kinds"></div>
+</div>
+<div id="banners"></div>
+<div class="view gut" id="view"><div class="boot">reading the catalogue</div></div>
+<div id="ovl"></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------- helpers */
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function el(id){return document.getElementById(id)}
+function api(p){return fetch(p,{credentials:"same-origin"}).then(function(r){
+  if(r.status===401){location.href="/login";throw new Error("signed out")}
+  if(!r.ok)return r.json().then(function(j){throw new Error(j.error||r.status)},
+                                function(){throw new Error("HTTP "+r.status)});
+  return r.json()})}
+function ago(s){
+  if(s==null)return "never";
+  if(s<90)return "just now";
+  if(s<5400)return Math.round(s/60)+"m ago";
+  if(s<172800)return Math.round(s/3600)+"h ago";
+  return Math.round(s/86400)+"d ago"}
+
+var KINDS=[["host","Hosts"],["guest","Guests"],["app","Applications"],
+           ["device","Devices"]];
+var MAIN=[["catalogue","Catalogue"],["runbook","Runbooks"],["register","Registers"],
+          ["governance","Governance"],["order","Reading orders"],
+          ["health","Health"],["activity","Activity"]];
+var S={view:"catalogue",kind:"host",slug:null,summary:null};
+var CAN_WRITE=false, REPO=null;
+
+/* ------------------------------------------------------------- diagrams */
+var RM=false;
+try{RM=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches}
+catch(e){}
+function mkDefs(){
+  function m(id,c){return '<marker id="'+id+'" viewBox="0 0 10 10" refX="9" refY="5"'+
+    ' markerWidth="7" markerHeight="7" orient="auto-start-reverse">'+
+    '<path d="M0 0 L10 5 L0 10 z" fill="'+c+'"/></marker>'}
+  return "<defs>"+m("mkA","var(--acc)")+m("mkR","var(--red)")+"</defs>"}
+function flow(d,o){
+  o=o||{};
+  var col=o.col||"var(--acc)", mk=o.mk||"mkA", dots=o.dots==null?1:o.dots,
+      dur=o.dur||2.4;
+  var out='<path class="fl" d="'+d+'" stroke="'+col+'" marker-end="url(#'+mk+')"/>';
+  if(!RM)for(var i=0;i<dots;i++)
+    out+='<circle r="2.7" fill="'+col+'"><animateMotion dur="'+dur+
+      's" repeatCount="indefinite" path="'+d+'" begin="'+(i*dur/dots).toFixed(2)+
+      's"/></circle>';
+  return out}
+function nodeBox(x,y,w,h,t,k,cls){
+  return '<rect class="'+(cls||"bx")+'" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+
+    '"/><text class="tt" x="'+(x+12)+'" y="'+(y+21)+'">'+esc(t)+"</text>"+
+    (k?'<text class="tk" x="'+(x+12)+'" y="'+(y+37)+'">'+esc(k)+"</text>":"")}
+function fig(title,note,svg){
+  return '<div class="fig2"><div class="c">'+esc(title)+
+    (note?"<s>"+esc(note)+"</s>":"")+'</div><div class="pl">'+svg+"</div></div>"}
+
+function sysDiagram(sum){
+  var c=sum.coverage||{have:0,total:0};
+  var p=['<svg viewBox="0 0 980 250" style="min-width:860px" role="img" aria-label="Collectors push metrics into Elastic Ops, which writes ops.db. Citadel reads ops.db and the estate-docs tree to render the catalogue.">'];
+  p.push(mkDefs());
+  p.push(nodeBox(12,44,138,58,"collectors","on each hypervisor"));
+  p.push(nodeBox(200,44,156,58,"Elastic Ops","one process, pepper","bx-a"));
+  p.push(nodeBox(406,44,134,58,"ops.db","live state"));
+  p.push(nodeBox(590,44,156,58,"citadel","renders records","bx-a"));
+  p.push(nodeBox(796,44,172,58,"estate-docs","the markdown tree"));
+  p.push(nodeBox(590,166,156,54,"This catalogue","what you are reading","bx-a"));
+  p.push(flow("M150 73 L196 73",{dur:2.0}));
+  p.push(flow("M356 73 L402 73",{dur:1.7}));
+  p.push(flow("M540 73 L586 73",{dur:1.7}));
+  p.push(flow("M792 73 L750 73",{dur:2.2,col:"var(--ink-3)"}));
+  p.push(flow("M668 102 L668 162",{dur:1.6}));
+  p.push('<text class="al" x="150" y="36">push every 10 min</text>');
+  p.push('<text class="al" x="360" y="36">write</text>');
+  p.push('<text class="al" x="544" y="36">read live state</text>');
+  p.push('<text class="al" x="756" y="36">read</text>');
+  p.push('<text class="al" x="676" y="136">'+c.have+" of "+c.total+" documented</text>");
+  p.push("</svg>");
+  return fig("Live · how the catalogue stays true",
+    "arrows show the real direction of flow",p.join(""))}
+
+function provenance(panels){
+  if(!panels||!panels.length)return "";
+  var h=panels.length*30+30, w=660;
+  var p=['<svg viewBox="0 0 '+w+" "+h+'" style="min-width:560px" role="img" aria-label="Which live source feeds which panel">'];
+  p.push(mkDefs());
+  p.push('<rect class="bx-a" x="8" y="'+(h/2-26)+'" width="118" height="52"/>');
+  p.push('<text class="tt" x="22" y="'+(h/2-5)+'" fill="var(--acc)">ops.db</text>');
+  p.push('<text class="tk" x="22" y="'+(h/2+12)+'" fill="var(--acc)">live</text>');
+  panels.forEach(function(pn,i){
+    var y=16+i*30;
+    p.push(flow("M126 "+(h/2)+" C 210 "+(h/2)+", 250 "+(y+13)+", 384 "+(y+13),
+      {dur:2.4+i*0.25}));
+    p.push('<rect class="bx" x="388" y="'+y+'" width="190" height="26"/>');
+    p.push('<text class="tk" x="400" y="'+(y+17)+'" fill="var(--ink-2)">'+
+      esc(pn.label)+" · "+esc(pn.value)+"</text>")});
+  p.push('<text class="al" x="592" y="'+(h/2-2)+'">nobody</text>');
+  p.push('<text class="al" x="592" y="'+(h/2+12)+'">types these</text>');
+  p.push("</svg>");
+  return fig("Live · where these figures come from",
+    "bindings resolved at request time",p.join(""))}
+
+function guestDiagram(rec){
+  var gs=rec.guests||[];
+  if(!gs.length)return "";
+  var documented={};
+  (rec.carried_docs||[]).forEach(function(v){documented[v]=1});
+  var perCol=Math.ceil(gs.length/Math.min(3,gs.length)),
+      cols=Math.ceil(gs.length/perCol), bw=142,bh=30,gap=8,
+      h=Math.max(perCol*(bh+gap)+16,96), w=176+cols*(bw+26)+120;
+  var p=['<svg viewBox="0 0 '+w+" "+h+'" style="min-width:'+Math.min(w,620)+
+    'px" role="img" aria-label="What this host carries">'];
+  p.push(mkDefs());
+  var cy=h/2;
+  p.push('<rect class="bx-a" x="8" y="'+(cy-26)+'" width="128" height="52"/>');
+  p.push('<text class="tt" x="22" y="'+(cy-5)+'" fill="var(--acc)">'+esc(rec.title)+"</text>");
+  p.push('<text class="tk" x="22" y="'+(cy+12)+'" fill="var(--acc)">'+esc(rec.shelf)+"</text>");
+  var undoc=0;
+  gs.forEach(function(g,n){
+    var c=Math.floor(n/perCol), rI=n%perCol,
+        x=176+c*(bw+26), y=8+rI*(bh+gap);
+    var ok=!!documented[String(g.vmid)];
+    if(!ok)undoc++;
+    if(c===0)p.push(flow("M136 "+cy+" C 150 "+cy+", 156 "+(y+15)+", "+(x-4)+" "+(y+15),
+      {dur:2.2+n*0.2,col:ok?"var(--acc)":"var(--red)",mk:ok?"mkA":"mkR"}));
+    else p.push(flow("M"+(x-26)+" "+(y+15)+" L"+(x-4)+" "+(y+15),
+      {dur:1.8,col:ok?"var(--acc)":"var(--red)",mk:ok?"mkA":"mkR"}));
+    p.push('<rect class="'+(ok?"bx":"bx-r")+'" x="'+x+'" y="'+y+'" width="'+bw+
+      '" height="'+bh+'"/>');
+    p.push('<text class="tk" x="'+(x+11)+'" y="'+(y+19)+'" fill="'+
+      (ok?"var(--ink-2)":"var(--red)")+'">'+esc(g.vmid)+" · "+
+      esc(String(g.name||"").slice(0,11))+"</text>")});
+  var lx=176+cols*(bw+26)+8;
+  p.push('<text class="al" x="'+lx+'" y="'+(cy-4)+'">'+gs.length+" guests</text>");
+  p.push('<text class="al" x="'+lx+'" y="'+(cy+12)+'" fill="'+
+    (undoc?"var(--red)":"var(--grn)")+'">'+
+    (undoc?undoc+" undocumented":"all documented")+"</text>");
+  p.push("</svg>");
+  return fig("Live · what this host carries","drawn from the guests table",
+    p.join(""))}
+
+/* ------------------------------------------------------------- chrome */
+function renderNav(){
+  var sum=S.summary||{counts:{},findings:0};
+  el("navMain").innerHTML=MAIN.map(function(m){
+    var n="";
+    if(m[0]==="health")n="<i>"+(sum.findings||0)+"</i>";
+    else if(m[0]!=="catalogue")n="<i>"+((sum.counts||{})[m[0]]||0)+"</i>";
+    var on=(m[0]==="catalogue"&&(S.view==="catalogue"||S.view==="index"||
+            S.view==="record"))||S.view===m[0];
+    return '<button data-nav="'+m[0]+'" class="'+(on?"on":"")+'">'+m[1]+n+"</button>"
+  }).join("");
+  var show=(S.view==="catalogue"||S.view==="index");
+  el("kinds").innerHTML=show?'<nav class="kinds gut">'+KINDS.map(function(k){
+    return '<button data-kind="'+k[0]+'" class="'+
+      (S.view==="index"&&S.kind===k[0]?"on":"")+'">'+k[1]+"</button>"}).join("")+
+    "</nav>":"";
+  var b=[];
+  if(REPO&&REPO.ok&&REPO.unpushed)b.push('<div class="banner w"><b>'+
+    REPO.unpushed+" commit"+(REPO.unpushed>1?"s":"")+" not pushed</b> \u2014 "+
+    (REPO.remote?"retrying":"no remote is configured")+
+    ". Your work is committed locally and safe."+
+    (REPO.remote?'<span class="rt"><button class="btn" id="bPush">push now'+
+      "</button></span>":"")+"</div>");
+  if(REPO&&!REPO.ok)b.push('<div class="banner r">Read-only \u2014 '+
+    esc(REPO.why||"the document tree is not a repository")+"</div>");
+  if(sum.degraded)b.push('<div class="banner r"><b>The document tree could not be '+
+    'read.</b> You are looking at the last good scan, '+esc(ago(sum.age))+
+    '. Editing is unavailable; reading is not.</div>');
+  if(sum.fts===false)b.push('<div class="banner w">This SQLite build has no FTS5. '+
+    'Search is running on LIKE — slower, and still perfectly adequate here.</div>');
+  el("banners").innerHTML=b.join("");
+  var pb=el("bPush");
+  if(pb)pb.addEventListener("click",function(){
+    pb.textContent="pushing\u2026";
+    post("/api/citadel/push",{}).then(function(){refreshRepo().then(renderNav)})})}
+
+function refreshRepo(){
+  return api("/api/citadel/status").then(function(st){
+    REPO=st; CAN_WRITE=!!st.ok; return st},function(){REPO=null;return null})}
+
+/* ------------------------------------------------------------- views */
+function vCatalogue(){
+  return api("/api/citadel/summary").then(function(sum){
+    S.summary=sum;
+    var c=sum.coverage||{have:0,total:0}, gap=c.total-c.have;
+    var counts=KINDS.map(function(k){
+      return "<div><span>"+k[1]+"</span><b>"+((sum.counts||{})[k[0]]||0)+"</b></div>"}).join("");
+    return '<div class="crumb">Catalogue</div><div class="vh">'+
+      '<h2 class="vt">The estate, catalogued</h2></div>'+
+      sysDiagram(sum)+
+      '<div class="counts">'+counts+
+        "<div><span>Runbooks</span><b>"+((sum.counts||{}).runbook||0)+"</b></div>"+
+        "<div><span>Records</span><b>"+(sum.records||0)+"</b></div>"+
+        "<div><span>Words</span><b>"+((sum.words||0)/1000).toFixed(1)+"k</b></div></div>"+
+      '<div class="cover"><div class="hd">Coverage <b>'+c.have+" of "+c.total+
+        ' objects have a record</b></div><div class="bar">'+
+        '<i style="flex:'+Math.max(c.have,0)+'"></i>'+
+        '<i class="m" style="flex:'+Math.max(gap,0)+'"></i></div>'+
+        '<div class="hd" style="margin-top:7px">'+gap+" undocumented · "+
+        (sum.findings||0)+" findings"+(sum.paging?", "+sum.paging+" paging":"")+
+        "</div></div>"+
+      '<div class="mn g"><div class="t">Why</div><div>'+
+        "<b>The coverage bar is the front door’s whole argument.</b> No wiki can "+
+        "tell you how much of your estate is undocumented, because no wiki knows "+
+        "what the estate contains.</div></div>"})}
+
+function vIndex(){
+  return api("/api/citadel/index/"+S.kind).then(function(d){
+    var label=(KINDS.filter(function(k){return k[0]===S.kind})[0]||["",S.kind])[1];
+    var rows=d.rows.map(function(r){
+      var rec=r.record;
+      var mark=rec?'<a class="sm" href="/citadel/r/'+esc(rec.shelf.toLowerCase()
+                   .replace(/[^a-z0-9]+/g,"-"))+'" data-link>'+esc(rec.shelf)+"</a>"
+                 :'<span class="sm q">no record</span>';
+      var state=rec?(rec.overdue?'<span class="tag t-half">stale</span>':
+                     '<span class="tag t-ok">'+esc(rec.verified||"—")+"</span>")
+                  :'<span class="tag t-no">undocumented</span>';
+      return "<tr><td>"+mark+"</td><td><b>"+esc(r.label)+"</b></td>"+
+        '<td class="n">'+esc(r.detail||"—")+"</td>"+
+        '<td class="n">'+esc(rec?(rec.owner||"—"):"—")+"</td>"+
+        "<td>"+state+(r.orphan?' <span class="tag t-no">orphan</span>':"")+"</td></tr>"
+    }).join("");
+    return '<div class="crumb">Catalogue / '+esc(label)+"</div>"+
+      '<div class="vh"><h2 class="vt">'+esc(label)+'</h2>'+
+      '<span class="tag t-i">'+d.rows.length+" in the estate</span></div>"+
+      '<div class="tw"><table><thead><tr><th>Shelf</th><th>Name</th>'+
+      "<th>Detail</th><th>Owner</th><th>State</th></tr></thead><tbody>"+
+      (rows||'<tr><td colspan="5">Nothing of this kind yet.</td></tr>')+
+      "</tbody></table></div>"+
+      '<div class="mn"><div class="t">Detail</div><div>'+
+      "<b>This table is generated.</b> The live columns come from the portal; the "+
+      "written columns come from the records. A thing with no record appears here "+
+      "rather than hiding on a findings page.</div></div>"})}
+
+function vCollection(kind,label){
+  return api("/api/citadel/index/"+kind).then(function(d){
+    var rows=d.rows.filter(function(r){return r.record}).map(function(r){
+      var rec=r.record;
+      return '<div><a class="sm" href="/citadel/r/'+
+        esc(rec.shelf.toLowerCase().replace(/[^a-z0-9]+/g,"-"))+'" data-link>'+
+        esc(rec.shelf)+'</a><span class="ds"><b>'+esc(rec.title)+"</b></span>"+
+        '<span class="rt"><span class="mo">'+esc(rec.owner||"—")+"</span>"+
+        (rec.overdue?'<span class="tag '+(kind==="runbook"?"t-no":"t-half")+'">'+
+          (kind==="runbook"?"unverified":"stale")+"</span>":
+          '<span class="tag t-ok">verified '+esc(rec.verified||"")+"</span>")+
+        "</span></div>"}).join("");
+    return '<div class="crumb">'+esc(label)+'</div><div class="vh">'+
+      '<h2 class="vt">'+esc(label)+"</h2></div>"+
+      '<div class="rows">'+(rows||"<div>Nothing here yet.</div>")+"</div>"})}
+
+function vRecord(){
+  return api("/api/citadel/record/"+encodeURIComponent(S.slug)).then(function(r){
+    var broken=(r.links||[]).filter(function(l){return !l.resolved});
+    var panels=(r.panels||[]).map(function(p){
+      return "<div><span>"+esc(p.label)+"</span><b>"+esc(p.value)+"</b><s>"+
+        esc(p.note||"")+"</s></div>"}).join("");
+    var runbooks=(r.runbooks||[]).map(function(x){
+      return '<div><a class="sm" href="/citadel/r/'+
+        esc(x.shelf.toLowerCase().replace(/[^a-z0-9]+/g,"-"))+'" data-link>'+
+        esc(x.shelf)+'</a><span class="ds">'+esc(x.title)+"</span></div>"}).join("");
+    return '<div class="crumb"><a href="/citadel" data-link>Catalogue</a> / '+
+      esc(r.kind)+" / "+esc(r.title)+"</div>"+
+      '<div class="vh"><h2 class="vt">'+esc(r.title)+'</h2>'+
+      '<span class="sm">'+esc(r.shelf)+"</span>"+
+      (r.overdue?'<span class="tag '+(r.kind==="runbook"?"t-no":"t-half")+'">'+
+        (r.kind==="runbook"?"unverified":"stale")+"</span>":
+        '<span class="tag t-ok">verified</span>')+
+      '<span class="rt">'+
+        '<a class="btn" href="/citadel/h/'+esc(S.slug)+'" data-link>history</a>'+
+        (CAN_WRITE?'<a class="btn p" href="/citadel/e/'+esc(S.slug)+
+          '" data-link>edit</a>':"")+
+      "</span></div>"+
+      '<div class="rmeta">'+
+        "<div>owner<b>"+esc(r.owner||"—")+"</b></div>"+
+        "<div>verified<b>"+esc(r.verified||"never")+"</b></div>"+
+        "<div>review<b>"+esc(r.review||"—")+"</b></div>"+
+        "<div>file<b>"+esc(r.kind+"/"+r.slug+".md")+"</b></div></div>"+
+      (panels?'<div class="panels">'+panels+"</div>"+
+        '<div class="pcap">↑ read at request time · nobody types these</div>'
+        +provenance(r.panels):"")+
+      guestDiagram(r)+
+      '<div class="doc">'+(r.html||"<p>Nothing written yet.</p>")+"</div>"+
+      (runbooks?'<div class="rows"><div class="hd"><span>Runbooks that touch this '+
+        'record</span><span class="rt">listed automatically</span></div>'+runbooks+
+        "</div>":"")+
+      (broken.length?'<div class="mn r"><div class="t">Finding</div><div>'+
+        "This record links "+broken.map(function(l){
+          return '<span class="sm q">'+esc(l.shelf)+"</span>"}).join(" ")+
+        " — no such record. Also shown in Health.</div></div>":"")+
+      ((r.problems||[]).length?'<div class="mn r"><div class="t">Malformed</div>'+
+        "<div>"+r.problems.map(esc).join("<br>")+"</div></div>":"")})}
+
+function vHealth(){
+  return api("/api/citadel/health").then(function(d){
+    var f=d.findings||[];
+    function sev(s){return s==="page"?'<span class="tag t-no">page</span>':
+      s==="notify"?'<span class="tag t-half">notify</span>':
+      '<span class="tag t-ok">quiet</span>'}
+    var rows=f.map(function(x){
+      return "<div>"+sev(x.severity)+'<span class="ds"><b>'+
+        esc(x.kind.replace(/-/g," "))+".</b> "+esc(x.what)+"</span>"+
+        (x.shelf?'<span class="rt"><a class="btn" href="/citadel/r/'+
+          esc(x.shelf.toLowerCase().replace(/[^a-z0-9]+/g,"-"))+
+          '" data-link>open</a></span>':"")+"</div>"}).join("");
+    var paging=f.filter(function(x){return x.severity==="page"}).length;
+    return '<div class="crumb">Health</div><div class="vh">'+
+      '<h2 class="vt">Catalogue health</h2></div>'+
+      '<p class="sub">Six conditions, computed on every sweep from the records and '+
+      "the live estate. These are not stored findings — fix the cause and the "+
+      "row disappears.</p>"+
+      '<div class="counts"><div><span>Checks</span><b>6</b></div>'+
+        "<div><span>Findings</span><b>"+f.length+"</b></div>"+
+        "<div><span>Paging</span><b>"+paging+"</b></div></div>"+
+      '<div class="rows"><div class="hd"><span>Open findings</span>'+
+      '<span class="rt">worst first</span></div>'+
+      (rows||'<div><span class="ds" style="color:var(--grn)">Nothing outstanding.'+
+       "</span></div>")+"</div>"+
+      '<div class="mn r"><div class="t">One pages</div><div>'+
+      "<b>Only one of the six pages anyone, and it is the right one.</b> An "+
+      "unverified restore runbook is the condition that actually hurts — you "+
+      "find out it is wrong at the worst possible moment. The other five are nags, "+
+      "and a nag that pages gets silenced.</div></div>"})}
+
+/* ------------------------------------------------------------- search */
+function openSearch(){
+  el("ovl").innerHTML='<div class="ovl" id="ovlBg"><div class="bx2">'+
+    '<div class="q"><span style="color:var(--ink-3);font-family:var(--mono)">/</span>'+
+    '<input id="sIn" placeholder="record, shelf mark, or words" autocomplete="off">'+
+    '<s>esc to close</s></div><div id="sRes"></div></div></div>';
+  var i=el("sIn");i.focus();
+  var t=null;
+  i.addEventListener("input",function(){
+    clearTimeout(t);t=setTimeout(function(){drawSearch(i.value)},160)});
+  el("ovlBg").addEventListener("click",function(e){
+    if(e.target.id==="ovlBg")closeSearch()})}
+function closeSearch(){el("ovl").innerHTML=""}
+function drawSearch(q){
+  if(!String(q).trim()){el("sRes").innerHTML='<div class="sgrp">'+
+    '<div class="k">Type a shelf mark to jump, or a word to search</div></div>';return}
+  api("/api/citadel/search?q="+encodeURIComponent(q)).then(function(d){
+    var r=d.results||[];
+    el("sRes").innerHTML=r.length?'<div class="sgrp"><div class="k">'+r.length+
+      " result"+(r.length===1?"":"s")+"</div>"+r.map(function(x){
+        return '<a href="'+esc(x.url)+'" data-link><span class="sm">'+esc(x.shelf)+
+          "</span><b>"+esc(x.title)+'</b><span class="mo" style="font-family:'+
+          'var(--mono);font-size:10px;color:var(--ink-3)">'+esc(x.kind)+"</span>"+
+          (x.overdue?'<span class="tag t-half">stale</span>':"")+"</a>"}).join("")+
+      "</div>":'<div class="sgrp"><div class="k">No match</div></div>'})}
+
+/* ===================================================== phase 2: writing */
+function post(p,b){return fetch(p,{method:"POST",credentials:"same-origin",
+  headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})})
+  .then(function(r){return r.json().then(function(j){
+    return {code:r.status,body:j}},function(){return {code:r.status,body:{}}})})}
+
+var ED={slug:null,src:null,dirty:false,timer:null,conflict:null};
+
+function vEdit(){
+  return api("/api/citadel/edit/"+encodeURIComponent(S.slug)).then(function(d){
+    ED.slug=S.slug; ED.src=d; ED.conflict=null;
+    if(!d.writable)return '<div class="err"><b>This catalogue is read-only.</b><br>'+
+      esc(d.why)+"<br>The document tree on pepper is not a git repository, so "+
+      "nothing can be committed. Reading is unaffected.</div>";
+    var binds=Object.keys(d.bind||{}).map(function(k){
+      var v=d.bind[k];
+      return '<span class="bchip">'+esc(k+(v===true?"":" = "+
+        (Array.isArray(v)?v.join(", "):v)))+"</span>"}).join("");
+    return '<div class="crumb"><a href="/citadel/r/'+esc(S.slug)+'" data-link>'+
+      esc(d.title)+"</a> / edit</div>"+
+    '<div class="vh"><h2 class="vt">'+esc(d.title)+'</h2>'+
+      '<span class="sm">'+esc(d.shelf)+'</span>'+
+      '<span class="tag t-i">editing</span>'+
+      '<span class="rt"><span class="mo" id="edState">loaded from blob '+
+      esc(String(d.blob||"").slice(0,7))+"</span></span></div>"+
+    '<div class="fm">'+
+      '<div class="fmr">'+
+        fmField("Title","fTitle",d.title)+
+        fmField("Owner","fOwner",d.owner)+
+        fmField("Verified","fVer",d.verified)+
+        fmField("Review every","fRev",d.review)+
+      "</div>"+
+      '<div class="bindrow"><span>BINDINGS</span>'+(binds||
+        '<span class="mo">none</span>')+
+        '<span class="rt"><span class="mo">read-only here — edit the file '+
+        "to change them</span></span></div></div>"+
+    '<div class="tbar" id="tbar">'+
+      tb("## ","H2",1)+tb("### ","H3",1)+tb("#### ","H4",1)+
+      tw("**","B")+tw("*","I")+tw("`","code")+
+      tb("- ","• list",1)+tb("1. ","1. list",1)+
+      tb("| a | b |\n| --- | --- |\n| 1 | 2 |\n","table")+
+      tb("> ","quote",1)+tb("\n---\n","—")+
+      tb("[[HST.PEP]]","[[ record ]]",0,"k")+
+      tb("> [!warn] ","callout",1,"k")+
+      '<span class="sp">covers the whole subset</span></div>'+
+    '<div class="split">'+
+      '<div><div class="pane-k">Source — markdown</div>'+
+        '<textarea class="src" id="srcTA" spellcheck="false">'+esc(d.body)+
+        "</textarea></div>"+
+      '<div><div class="pane-k">Preview<s id="pvState"></s></div>'+
+        '<div class="doc" id="pvOut" style="margin-top:0;border:0;padding:0;'+
+        'box-shadow:none;background:none"></div></div></div>'+
+    '<div class="savebar">'+
+      '<span class="req">Summary — required</span>'+
+      '<input id="fSum" placeholder="what changed, and why">'+
+      '<button class="btn" id="bDiscard">discard</button>'+
+      '<button class="btn p" id="bSave" disabled>save &amp; commit</button>'+
+      '<span class="who2">commits as <b>'+esc(d.owner||"you")+
+      "</b> · <kbd>Ctrl</kbd>+<kbd>S</kbd> to save</span></div>"})}
+
+function fmField(label,id,val){
+  return '<div class="f"><span>'+esc(label)+'</span><input id="'+id+
+    '" value="'+esc(val||"")+'"></div>'}
+function tb(ins,label,pre,cls){
+  return '<button data-ins="'+esc(ins)+'"'+(pre?' data-pre="1"':"")+
+    (cls?' class="'+cls+'"':"")+">"+esc(label)+"</button>"}
+function tw(w,label){
+  return '<button data-wrap="'+esc(w)+'">'+esc(label)+"</button>"}
+
+function wireEditor(){
+  var ta=el("srcTA"); if(!ta)return;
+  var sum=el("fSum"), save=el("bSave");
+  function preview(){
+    post("/api/citadel/preview",{body:ta.value}).then(function(r){
+      if(r.code!==200)return;
+      el("pvOut").innerHTML=r.body.html||"";
+      var bad=(r.body.links||[]).filter(function(l){return !l.resolved});
+      el("pvState").innerHTML=bad.length
+        ?'<span style="color:var(--red)">'+bad.length+" broken link"+
+          (bad.length>1?"s":"")+"</span>"
+        :'<span style="color:var(--grn)">links ok</span>'})}
+  function touch(){
+    ED.dirty=true;
+    save.disabled=!sum.value.trim();
+    clearTimeout(ED.timer); ED.timer=setTimeout(preview,350)}
+  ta.addEventListener("input",touch);
+  sum.addEventListener("input",function(){save.disabled=!sum.value.trim()});
+  ta.addEventListener("keydown",function(e){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();doSave()}});
+  el("bDiscard").addEventListener("click",function(){
+    ED.dirty=false;go("/citadel/r/"+ED.slug)});
+  save.addEventListener("click",doSave);
+  el("tbar").addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b)return;
+    var ins=b.getAttribute("data-ins"), wrap=b.getAttribute("data-wrap");
+    var s0=ta.selectionStart,e0=ta.selectionEnd,v=ta.value;
+    if(wrap){
+      var mid=v.slice(s0,e0)||"text";
+      ta.value=v.slice(0,s0)+wrap+mid+wrap+v.slice(e0);
+      ta.selectionStart=s0+wrap.length; ta.selectionEnd=s0+wrap.length+mid.length}
+    else if(b.getAttribute("data-pre")){
+      var ls=v.lastIndexOf("\n",s0-1)+1;
+      ta.value=v.slice(0,ls)+ins+v.slice(ls);
+      ta.selectionStart=ta.selectionEnd=s0+ins.length}
+    else{
+      ta.value=v.slice(0,s0)+ins+v.slice(e0);
+      ta.selectionStart=ta.selectionEnd=s0+ins.length}
+    ta.focus(); touch()});
+  preview()}
+
+function doSave(){
+  var ta=el("srcTA"), sum=el("fSum");
+  if(!ta||!sum.value.trim())return;
+  el("bSave").disabled=true;
+  el("edState").textContent="committing…";
+  post("/api/citadel/save",{
+    slug:ED.slug, body:ta.value, summary:sum.value.trim(), blob:ED.src.blob,
+    title:el("fTitle").value, owner:el("fOwner").value,
+    verified:el("fVer").value, review:el("fRev").value
+  }).then(function(r){
+    if(r.code===200){ED.dirty=false;S.summary=null;go("/citadel/r/"+ED.slug);return}
+    if(r.code===409&&r.body.theirs!==undefined){
+      ED.conflict={yours:ta.value,summary:sum.value.trim(),
+        theirs:r.body.theirs,expected:r.body.expected,actual:r.body.actual};
+      S.view="conflict";render();window.scrollTo(0,0);return}
+    el("edState").innerHTML='<span style="color:var(--red)">'+
+      esc(r.body.error||("HTTP "+r.code))+"</span>";
+    el("bSave").disabled=false})}
+
+function vConflict(){
+  var c=ED.conflict;
+  return Promise.resolve(
+    '<div class="banner r" style="margin:0 0 16px"><b>409 — this record '+
+    "changed while you were editing.</b> Nothing has been written. Your text "+
+    "is still here.</div>"+
+    '<div class="vh"><h2 class="vt">Conflict</h2>'+
+    '<span class="sm">'+esc(ED.slug)+"</span></div>"+
+    '<div class="rmeta"><div>you loaded<b>'+esc(String(c.expected||"").slice(0,7))+
+      "</b></div><div>now on disk<b>"+esc(String(c.actual||"").slice(0,7))+
+      "</b></div></div>"+
+    '<div class="split" style="margin-top:14px;border:1px solid var(--ln)">'+
+      '<div><div class="pane-k">On disk now — theirs</div>'+
+        '<pre class="cmp">'+esc(c.theirs)+"</pre></div>"+
+      '<div><div class="pane-k">Yours, unsaved</div>'+
+        '<pre class="cmp">'+esc(c.yours)+"</pre></div></div>"+
+    '<div class="filters" style="margin-top:14px">'+
+      '<button class="btn p" id="bMine">keep mine</button>'+
+      '<button class="btn" id="bTheirs">take theirs</button>'+
+      '<span class="rt" style="color:var(--ink-3)">your text is held in this '+
+      "browser until you choose</span></div>"+
+    '<div class="mn"><div class="t">Honest</div><div>'+
+    "<b>“Keep mine” commits on top of theirs. It is never a force "+
+    "push and it never rewrites history</b> — their commit stays in the "+
+    "log, and the history page shows both.</div></div>")}
+
+function wireConflict(){
+  var c=ED.conflict; if(!c)return;
+  el("bMine").addEventListener("click",function(){
+    api("/api/citadel/edit/"+encodeURIComponent(ED.slug)).then(function(d){
+      post("/api/citadel/save",{slug:ED.slug,body:c.yours,blob:d.blob,
+        summary:c.summary+" (kept mine)"}).then(function(r){
+        ED.conflict=null;S.summary=null;
+        go(r.code===200?"/citadel/r/"+ED.slug:"/citadel/e/"+ED.slug)})})});
+  el("bTheirs").addEventListener("click",function(){
+    ED.conflict=null;go("/citadel/r/"+ED.slug)})}
+
+function vHistory(){
+  return api("/api/citadel/history/"+encodeURIComponent(S.slug)).then(function(h){
+    var rows=(h.commits||[]).map(function(c){
+      return '<div><span class="dt">'+esc(new Date(c.ts*1000)
+        .toISOString().slice(0,16).replace("T"," "))+"</span>"+
+        '<span class="au">'+esc(c.author)+'</span>'+
+        '<span class="sy">'+esc(c.summary)+'</span>'+
+        '<span class="sh">'+esc(c.short)+"</span>"+
+        (c.pushed?'<span class="tag t-ok">pushed</span>'
+                 :'<span class="tag t-half">queued</span>')+"</div>"}).join("");
+    return '<div class="crumb"><a href="/citadel/r/'+esc(S.slug)+'" data-link>'+
+      esc(h.title)+"</a> / history</div>"+
+    '<div class="vh"><h2 class="vt">'+esc(h.title)+'</h2>'+
+      '<span class="sm">'+esc(h.shelf)+'</span>'+
+      '<span class="rt"><a class="btn" href="/citadel/r/'+esc(S.slug)+
+      '" data-link>back to record</a></span></div>'+
+    '<div class="hist"><div class="hd"><span class="dt">When</span>'+
+      '<span class="au">Who</span><span class="sy">Summary</span>'+
+      '<span class="sh">Commit</span><span>State</span></div>'+
+      (rows||"<div>No commits yet.</div>")+"</div>"+
+    '<div class="mn g"><div class="t">Free</div><div>'+
+    "<b>This needs no log table to maintain.</b> The history <em>is</em> the "+
+    "git history. The cache only spares a page view from shelling out, and it "+
+    "can be dropped and rebuilt from the repository.</div></div>"})}
+
+function vActivity(){
+  return api("/api/citadel/activity").then(function(d){
+    var rows=(d.commits||[]).map(function(c){
+      return '<div><span class="dt">'+esc(new Date(c.ts*1000)
+        .toISOString().slice(0,16).replace("T"," "))+"</span>"+
+        '<span class="au">'+esc(c.author||"—")+'</span>'+
+        '<span class="sy">'+(c.shelf?'<a class="sm" href="/citadel/r/'+
+          esc(String(c.shelf).toLowerCase().replace(/[^a-z0-9]+/g,"-"))+
+          '" data-link>'+esc(c.shelf)+"</a> ":"")+esc(c.summary||"")+"</span>"+
+        '<span class="vi">'+esc(c.via||"")+"</span>"+
+        '<span class="sh">'+esc(c.short||"")+"</span>"+
+        (c.pushed?'<span class="tag t-ok">pushed</span>'
+                 :'<span class="tag t-half">queued</span>')+"</div>"}).join("");
+    return '<div class="crumb">Activity</div><div class="vh">'+
+      '<h2 class="vt">Every edit, everywhere</h2></div>'+
+      '<div class="hist"><div class="hd"><span class="dt">When</span>'+
+      '<span class="au">Who</span><span class="sy">Record &amp; summary</span>'+
+      '<span class="vi">Via</span><span class="sh">Commit</span>'+
+      "<span>State</span></div>"+(rows||"<div>Nothing yet.</div>")+"</div>"+
+      '<div class="mn"><div class="t">State</div><div>'+
+      "<b>The <code>pushed</code> column is the one column that is not in "+
+      "git.</b> Whether a commit reached the remote is local knowledge, and it "+
+      "is the difference between written down and written down somewhere that "+
+      "survives this host.</div></div>"})}
+
+/* ------------------------------------------------------------- routing */
+function route(){
+  var p=location.pathname.replace(/\/+$/,"");
+  if(p.indexOf("/citadel/r/")===0){S.view="record";S.slug=p.slice(11)}
+  else if(p.indexOf("/citadel/e/")===0){S.view="edit";S.slug=p.slice(11)}
+  else if(p.indexOf("/citadel/h/")===0){S.view="history";S.slug=p.slice(11)}
+  else if(p==="/citadel/activity"){S.view="activity"}
+  else if(p.indexOf("/citadel/k/")===0){S.view="index";S.kind=p.slice(11)}
+  else if(p==="/citadel/health"){S.view="health"}
+  else if(p.indexOf("/citadel/c/")===0){S.view=p.slice(11)}
+  else{S.view="catalogue"}
+  render()}
+function go(path){history.pushState({},"",path);route();window.scrollTo(0,0)}
+
+function render(){
+  renderNav();
+  var job;
+  if(S.view==="record")job=vRecord();
+  else if(S.view==="index")job=vIndex();
+  else if(S.view==="edit")job=vEdit();
+  else if(S.view==="conflict")job=vConflict();
+  else if(S.view==="history")job=vHistory();
+  else if(S.view==="activity")job=vActivity();
+  else if(S.view==="health")job=vHealth();
+  else if(S.view==="runbook")job=vCollection("runbook","Runbooks");
+  else if(S.view==="register")job=vCollection("register","Registers");
+  else if(S.view==="governance")job=vCollection("governance","Governance");
+  else if(S.view==="order")job=vCollection("order","Reading orders");
+  else job=vCatalogue();
+  job.then(function(html){
+    el("view").innerHTML=html;
+    renderNav();
+    if(S.view==="edit")wireEditor();
+    if(S.view==="conflict")wireConflict();
+    if(!S.summary)api("/api/citadel/summary").then(function(s){
+      S.summary=s;renderNav()},function(){})
+  },function(e){
+    el("view").innerHTML='<div class="err"><b>'+esc(e.message)+"</b><br>"+
+      "The catalogue could not be read. If the document tree is missing on "+
+      "pepper, create it at the configured <code>docs_root</code>.</div>"})}
+
+document.addEventListener("click",function(e){
+  var a=e.target.closest&&e.target.closest("[data-link]");
+  if(a){e.preventDefault();closeSearch();go(a.getAttribute("href"));return}
+  var b=e.target.closest&&e.target.closest("[data-nav],[data-kind]");
+  if(!b)return;
+  var nav=b.getAttribute("data-nav"), kind=b.getAttribute("data-kind");
+  if(kind){go("/citadel/k/"+kind);return}
+  if(nav==="catalogue"){go("/citadel");return}
+  if(nav==="health"){go("/citadel/health");return}
+  if(nav==="activity"){go("/citadel/activity");return}
+  go("/citadel/c/"+nav)});
+window.addEventListener("popstate",route);
+el("sboxOpen").addEventListener("click",openSearch);
+document.addEventListener("keydown",function(e){
+  if(e.key==="/"&&!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+    e.preventDefault();openSearch()}
+  if(e.key==="Escape")closeSearch()});
+
+refreshRepo().then(route,route);
+</script>
+</body>
+</html>

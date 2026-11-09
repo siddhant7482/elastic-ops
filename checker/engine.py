@@ -160,6 +160,13 @@ def load_config(path):
     s.setdefault("notify_hours", "")      # "08:00-18:00", empty = any hour
     s.setdefault("notify_days", DAYS)
     s.setdefault("ingest_token", "")
+    # Citadel. Must sit under the one path the systemd sandbox allows the
+    # service to write (ReadWritePaths=/var/lib/elastic-ops), and must NOT
+    # live under /opt/elastic-ops, which a deploy overwrites.
+    s.setdefault("docs_root", "/var/lib/elastic-ops/estate-docs")
+    s.setdefault("docs_rescan", 60)
+    s.setdefault("docs_sync", 600)   # pull/push every ten minutes
+    s.setdefault("docs_manual_every", 86400)   # rebuild the offline manual
     s.setdefault("web_dir", "web")
     s.setdefault("session_hours", 12)
     s.setdefault("cookie_secure", False)
@@ -484,6 +491,27 @@ class Engine:
                 {s["name"]: s["percent"] for s in data["supplies"]
                  if s["percent"] is not None})
 
+    def sweep_docs(self):
+        """Alert on documentation that has gone wrong, like anything else.
+
+        This is the feature that justifies building the catalogue inside the
+        monitoring rather than beside it. A wiki cannot tell you that a
+        restore procedure has not been verified in fourteen months, because a
+        wiki does not know what a restore procedure is or when it last ran.
+
+        One row per category. The accepted-risk mechanism applies unchanged,
+        so "we have decided not to document VM 1001" is a dated decision with
+        a review date rather than a permanent red light.
+        """
+        docs = getattr(self, "docs", None)
+        if docs is None:
+            return
+        docs.scan()
+        for kind, (name, sev, count, detail) in docs.rollup().items():
+            self.store.register(name, "docs", "Documentation",
+                                f"{kind} \u00d7 {count}" if count else kind, sev)
+            self.transition(name, "down" if count else "up", detail, sev)
+
     def sweep_storage(self):
         """Alert on array and disk integrity — which nothing else here did.
 
@@ -659,6 +687,10 @@ class Engine:
                     except Exception as e:
                         log(f"cert check '{c['name']}' raised: {e}")
             self.sweep_jobs()
+            try:
+                self.sweep_docs()
+            except Exception as e:                               # noqa: BLE001
+                log(f"docs sweep raised: {e}")
             try:
                 self.sweep_storage()
             except Exception as e:

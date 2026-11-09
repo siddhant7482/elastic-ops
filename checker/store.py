@@ -216,6 +216,69 @@ CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY, username TEXT NOT NULL,
   created_ts INTEGER NOT NULL, expires_ts INTEGER NOT NULL
 );
+
+-- Citadel. The markdown files on disk are the source of truth; these tables
+-- are a cache of what was last read, so a page view costs no disk walk and no
+-- re-render. The cache is also the fallback: if the document tree goes
+-- missing or unreadable, the catalogue still serves what it last saw, which
+-- is the difference between degraded and down. Documentation that stops
+-- working when its storage is unhappy fails exactly when it is needed.
+CREATE TABLE IF NOT EXISTS records (
+  shelf      TEXT PRIMARY KEY,      -- HST.PEP
+  kind       TEXT NOT NULL,         -- host | guest | app | device | runbook | ...
+  slug       TEXT NOT NULL,
+  path       TEXT NOT NULL,         -- host/pepper.md, relative to the tree
+  title      TEXT,
+  owner      TEXT,
+  verified   TEXT,                  -- ISO date, as written by a person
+  review     TEXT,                  -- "6 months"
+  bind       TEXT,                  -- the [bind] table, as JSON
+  body       TEXT,                  -- markdown source
+  html       TEXT,                  -- rendered, safe to serve as-is
+  plain      TEXT,                  -- searchable text, markup stripped
+  blob       TEXT,                  -- content hash; re-render only when it moves
+  problems   TEXT,                  -- JSON list; malformed front matter etc.
+  scanned_ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS records_kind ON records(kind, title);
+
+-- The cross-reference graph. Kept as rows rather than recomputed because a
+-- broken link is a finding, and a finding needs somewhere to be counted from.
+CREATE TABLE IF NOT EXISTS record_links (
+  from_shelf TEXT NOT NULL,
+  to_shelf   TEXT NOT NULL,
+  resolved   INTEGER NOT NULL,      -- 0 means no such record
+  PRIMARY KEY (from_shelf, to_shelf)
+);
+CREATE INDEX IF NOT EXISTS record_links_to ON record_links(to_shelf);
+
+-- Phase 2: the push queue and the visible per-page history. The history
+-- itself is git's; this only caches it so a page view does not shell out, and
+-- it can be dropped and rebuilt from the repository. The one column that is
+-- NOT in git is `pushed`, which is local knowledge and the difference between
+-- written down and written down somewhere that survives this host.
+CREATE TABLE IF NOT EXISTS doc_commits (
+  sha     TEXT PRIMARY KEY,
+  ts      INTEGER NOT NULL,
+  author  TEXT,
+  shelf   TEXT,
+  path    TEXT,
+  summary TEXT,
+  via     TEXT,                     -- browser | git | scaffold | migration
+  pushed  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS doc_commits_ts ON doc_commits(ts);
+CREATE INDEX IF NOT EXISTS doc_commits_shelf ON doc_commits(shelf, ts);
+"""
+
+# FTS5 is a compile-time option. It is present in every build we have met, but
+# a database that cannot index is still a catalogue that must open, so the
+# search falls back to LIKE over the same cached text. At 14,000 words the
+# difference is not measurable.
+FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
+  shelf, title, plain, tokenize='porter unicode61'
+);
 """
 
 
@@ -242,6 +305,13 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        # Probe rather than assume. A build without FTS5 must still open the
+        # catalogue; search degrades to LIKE and says so.
+        try:
+            self.db.executescript(FTS_SCHEMA)
+            self.has_fts = True
+        except sqlite3.OperationalError:
+            self.has_fts = False
         self.db.commit()
         self.lock = threading.Lock()
         self.migrate()
@@ -590,6 +660,121 @@ class Store:
             if span >= 1 and printed >= 0:
                 ppd = round(printed / span, 1)
         return {"supplies": out, "pages_per_day": ppd, "samples": len(rows)}
+
+    # -- citadel ---------------------------------------------------------
+    def put_records(self, rows):
+        """Replace the catalogue snapshot, in one transaction.
+
+        A whole-tree swap rather than a per-file diff: at this size it costs
+        nothing, and it means a deleted file actually disappears instead of
+        lingering as a record of something that is no longer written down.
+
+        It is deliberately NOT called when the scan found nothing but errors —
+        see `scan_failed`. Emptying the cache because the disk hiccuped would
+        turn a degraded read into a catalogue that says the estate has no
+        documentation at all.
+        """
+        ts = now()
+        with self.lock:
+            cur = self.db.cursor()
+            cur.execute("DELETE FROM records")
+            cur.execute("DELETE FROM record_links")
+            if self.has_fts:
+                cur.execute("DELETE FROM records_fts")
+            for r in rows:
+                cur.execute(
+                    "INSERT INTO records(shelf,kind,slug,path,title,owner,"
+                    "verified,review,bind,body,html,plain,blob,problems,"
+                    "scanned_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (r["shelf"], r["kind"], r["slug"], r["path"], r["title"],
+                     r["owner"], r["verified"], r["review"],
+                     json.dumps(r.get("bind") or {}), r["body"], r["html"],
+                     r["plain"], r["blob"],
+                     json.dumps(r.get("problems") or []), ts))
+                if self.has_fts:
+                    cur.execute(
+                        "INSERT INTO records_fts(shelf,title,plain) "
+                        "VALUES(?,?,?)", (r["shelf"], r["title"], r["plain"]))
+                for to_shelf, ok in r.get("links") or []:
+                    cur.execute(
+                        "INSERT OR REPLACE INTO record_links"
+                        "(from_shelf,to_shelf,resolved) VALUES(?,?,?)",
+                        (r["shelf"], to_shelf, 1 if ok else 0))
+            self.db.commit()
+
+    def records(self, kind=None):
+        if kind:
+            return self.q("SELECT * FROM records WHERE kind=? "
+                          "ORDER BY title COLLATE NOCASE", (kind,))
+        return self.q("SELECT * FROM records ORDER BY kind, title COLLATE NOCASE")
+
+    # Not `record` — that is already taken by the method the check loop uses
+    # to write a result, and shadowing it would have stopped every check
+    # being recorded while the pages carried on looking fine.
+    def get_record(self, shelf):
+        return self.one("SELECT * FROM records WHERE shelf=?",
+                        (str(shelf).upper(),))
+
+    def record_by_slug(self, slug):
+        return self.one(
+            "SELECT * FROM records WHERE lower(replace(shelf,'.','-'))=?",
+            (str(slug).lower(),))
+
+    def record_age(self):
+        """Seconds since the catalogue was last scanned, or None if never.
+        The page shows this when the document tree is unreadable, because
+        'what you are reading is from 40 minutes ago' is a different claim
+        from 'this is current'."""
+        row = self.one("SELECT MAX(scanned_ts) AS t FROM records")
+        return None if not row or not row["t"] else now() - row["t"]
+
+    def broken_links(self):
+        return self.q("SELECT from_shelf, to_shelf FROM record_links "
+                      "WHERE resolved=0 ORDER BY from_shelf, to_shelf")
+
+    def search_records(self, text, limit=25):
+        """FTS5 where the build has it, LIKE where it does not. The caller
+        gets the same shape either way and `has_fts` says which ran."""
+        q = (text or "").strip()
+        if not q:
+            return []
+        if self.has_fts:
+            # Quote the term so a stray " or NEAR cannot become syntax.
+            safe = '"' + q.replace('"', '""') + '"*'
+            try:
+                return self.q(
+                    "SELECT r.* FROM records_fts f JOIN records r "
+                    "ON r.shelf=f.shelf WHERE records_fts MATCH ? "
+                    "ORDER BY rank LIMIT ?", (safe, limit))
+            except sqlite3.OperationalError:
+                pass                       # fall through to LIKE
+        like = "%" + q.replace("%", "").replace("_", "") + "%"
+        return self.q(
+            "SELECT * FROM records WHERE shelf LIKE ? OR title LIKE ? "
+            "OR plain LIKE ? ORDER BY kind, title COLLATE NOCASE LIMIT ?",
+            (like, like, like, limit))
+
+    def add_doc_commit(self, sha, author, shelf, path, summary, via,
+                       pushed=False, ts=None):
+        self.x("INSERT OR REPLACE INTO doc_commits"
+               "(sha,ts,author,shelf,path,summary,via,pushed) "
+               "VALUES(?,?,?,?,?,?,?,?)",
+               (sha, ts or now(), author, shelf, path, summary, via,
+                1 if pushed else 0))
+
+    def doc_commits(self, shelf=None, limit=60):
+        if shelf:
+            return self.q("SELECT * FROM doc_commits WHERE shelf=? "
+                          "ORDER BY ts DESC LIMIT ?", (shelf, limit))
+        return self.q("SELECT * FROM doc_commits ORDER BY ts DESC LIMIT ?",
+                      (limit,))
+
+    def unpushed(self):
+        return self.q("SELECT * FROM doc_commits WHERE pushed=0 ORDER BY ts")
+
+    def mark_pushed(self, shas):
+        for sha in shas:
+            self.x("UPDATE doc_commits SET pushed=1 WHERE sha=?", (sha,))
 
     def prune(self, results_days=120, events_days=400):
         t = now()

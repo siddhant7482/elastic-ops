@@ -49,6 +49,32 @@ jobs:
       - name: Smoke tests
         run: python3 tests/smoke.py
 
+      # The rendered output of this is cached and served without a sanitiser,
+      # which is only safe while every refusal holds. Most of these assertions
+      # are about what it declines to render, not what it renders.
+      - name: Markdown subset
+        timeout-minutes: 2
+        run: python3 tests/markdown_subset.py
+
+      # Records on disk matched against what the portal knows exists. The
+      # assertions that matter are the gaps: undocumented objects, orphaned
+      # records, and a live source that fails in the flattering direction.
+      - name: Catalogue
+        timeout-minutes: 2
+        run: python3 tests/catalogue.py
+
+      # Writing to the document tree. Skips itself where git is absent, so a
+      # runner without it still reports the rest honestly.
+      - name: Git layer
+        timeout-minutes: 3
+        run: python3 tests/repository.py
+
+      # The file you open when the portal is what is broken. Every assertion
+      # is about independence: no web font, no script, no absolute URL.
+      - name: Offline manual
+        timeout-minutes: 3
+        run: python3 tests/offline_manual.py
+
   compose:
     name: Compose config
     runs-on: ubuntu-latest

@@ -43,6 +43,7 @@ except ModuleNotFoundError:                                          # Python 3.
     tomllib = tomli          # bind the name too, not just the module entry
 
 import api                                                           # noqa: E402
+import citadel                                                       # noqa: E402
 import mailer as mailer_mod                                          # noqa: E402
 import auth as authmod                                               # noqa: E402
 import pool                                                          # noqa: E402
@@ -143,6 +144,29 @@ def main():
             web=os.path.join(ROOT, "checker", "web").replace("\\", "/"),
             inv=os.path.join(ROOT, "checker", "inventory.toml").replace("\\", "/")))
 
+    # A small document tree, so the catalogue has something real to read.
+    docs = os.path.join(tmp, "estate-docs")
+    DOCS = {
+        "host/pepper.md":
+            '+++\ntitle = "pepper"\nshelf = "HST.PEP"\nowner = "smoke"\n'
+            'verified = "2026-11-05"\nreview = "6 months"\n'
+            '[bind]\nhost = "pepper"\n+++\n\n'
+            '## What it is\n\nThe newest hypervisor. See [[RUN.PEP]] and '
+            '[[REG.NOPE]].\n\n> [!warn] Restore proxmox first.\n',
+        "runbook/restore-pepper.md":
+            '+++\ntitle = "Restore pepper"\nshelf = "RUN.PEP"\n'
+            'owner = "smoke"\nverified = "2020-01-01"\nreview = "6 months"\n'
+            '[bind]\nrecords = ["HST.PEP"]\n+++\n\n## Steps\n\nOne, two.\n',
+        "governance/roles.md":
+            '+++\ntitle = "Roles"\nshelf = "GOV.ROLE"\nowner = "smoke"\n'
+            'verified = "2026-11-01"\n+++\n\nWho is who. <script>x</script>\n',
+    }
+    for rel, text in DOCS.items():
+        path = os.path.join(docs, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
     cfg = load_config(cfg_path)
     s = cfg["settings"]
     inventory = load_inventory(s["inventory"])
@@ -151,7 +175,10 @@ def main():
     auth = authmod.Auth(store, s["session_hours"], s["cookie_secure"])
     engine = Engine(cfg, store, Notifier(cfg))
 
-    handler = api.make_handler(cfg, inventory, store, portal, engine, auth, s["web_dir"])
+    docsvc = citadel.Service(docs, store, portal, inventory, interval=0)
+    docsvc.scan(force=True)
+    handler = api.make_handler(cfg, inventory, store, portal, engine, auth,
+                               s["web_dir"], docs=docsvc)
     # The real server, so every assertion below also exercises the worker pool.
     srv = pool.Pool(("127.0.0.1", port), handler, workers=s["http_workers"],
                     backlog=s["http_backlog"], idle=s["http_idle"])
@@ -1649,6 +1676,284 @@ def main():
           r.get("login", {}).get("admitted", 0) >= 1, r.get("login"))
     code, _, _ = Client(base).get("/api/runtime")
     check("runtime needs a session", code == 401, code)
+
+    print("\ncitadel — the catalogue")
+    code, body, _ = c.get("/api/citadel/summary")
+    sm = json.loads(body)
+    check("summary is served to a session", code == 200, code)
+    check("it counted the records", sm["records"] == 3, sm.get("records"))
+    check("it reports coverage against the live estate",
+          sm["coverage"]["total"] > 0, sm.get("coverage"))
+    check("it says whether FTS5 is available", "fts" in sm)
+    check("it is not degraded with a readable tree", sm["degraded"] is False)
+
+    code, body, _ = c.get("/api/citadel/record/hst-pep")
+    rec = json.loads(body)
+    check("a record is served by slug", code == 200 and rec["shelf"] == "HST.PEP")
+    check("its markdown was rendered server-side", "<h3>" in rec["html"])
+    check("a callout rendered", 'class="callout warn"' in rec["html"])
+    check("a resolved record link became an anchor",
+          'href="/citadel/r/run-pep"' in rec["html"])
+    check("an unresolved one became a dashed chip", 'class="sm q"' in rec["html"])
+    check("the link list reports both",
+          sorted((x["shelf"], x["resolved"]) for x in rec["links"])
+          == [("REG.NOPE", False), ("RUN.PEP", True)], rec["links"])
+    check("runbooks that touch the record are listed automatically",
+          [x["shelf"] for x in rec["runbooks"]] == ["RUN.PEP"], rec["runbooks"])
+    check("an unknown slug is 404", c.get("/api/citadel/record/nope")[0] == 404)
+
+    code, body, _ = c.get("/api/citadel/record/gov-role")
+    check("raw html in a document is escaped, never rendered",
+          "&lt;script&gt;" in json.loads(body)["html"]
+          and "<script>" not in json.loads(body)["html"], code)
+
+    code, body, _ = c.get("/api/citadel/index/host")
+    rows = json.loads(body)["rows"]
+    check("an index is generated from the live estate", code == 200 and rows)
+    check("an undocumented host offers a create action",
+          any(r["create"] for r in rows))
+    check("an unknown kind is 404", c.get("/api/citadel/index/wat")[0] == 404)
+
+    code, body, _ = c.get("/api/citadel/health")
+    f = json.loads(body)["findings"]
+    check("health computes findings", code == 200 and f)
+    check("the stale runbook pages",
+          any(x["kind"] == "unverified-runbook" and x["severity"] == "page"
+              for x in f), [x["kind"] for x in f])
+    check("the broken cross-reference is found",
+          any("REG.NOPE" in x["what"] for x in f))
+    check("only unverified runbooks page",
+          {x["kind"] for x in f if x["severity"] == "page"}
+          == {"unverified-runbook"},
+          {x["kind"] for x in f if x["severity"] == "page"})
+
+    code, body, _ = c.get("/api/citadel/search?q=hypervisor")
+    res = json.loads(body)["results"]
+    check("search finds a word from the body", code == 200
+          and any(r["shelf"] == "HST.PEP" for r in res), res)
+    check("search on a shelf mark jumps to it",
+          any(r["shelf"] == "RUN.PEP" for r in
+              json.loads(c.get("/api/citadel/search?q=RUN.PEP")[1])["results"]))
+    check("an empty query returns nothing",
+          json.loads(c.get("/api/citadel/search?q=")[1])["results"] == [])
+    check("a quote in the query does not break the index",
+          c.get('/api/citadel/search?q=%22%22%22')[0] == 200)
+
+    code, body, _ = c.get("/citadel")
+    check("the page itself is served", code == 200 and b"Citadel" in body, code)
+    code, body, _ = c.get("/citadel/r/hst-pep")
+    check("a deep link serves the same page", code == 200 and b"Citadel" in body)
+    code, _, hdr = Client(base).get("/citadel")
+    check("the catalogue needs a session",
+          code == 303 and hdr.get("Location") == "/login", code)
+    code, _, _ = Client(base).get("/api/citadel/summary")
+    check("so does its API", code == 401, code)
+
+    print("\ncitadel — writing, if git is here")
+    import subprocess as _sp
+    try:
+        _sp.run(["git", "--version"], capture_output=True, timeout=10, check=True)
+        HAVE_GIT = True
+    except (OSError, _sp.SubprocessError):
+        HAVE_GIT = False
+
+    if not HAVE_GIT:
+        print("  --   git is not installed; skipping the write path")
+    else:
+        import repo as repomod
+        rr = repomod.Repo(docs)
+        rr.init()
+        rr._run(["add", "-A"])
+        rr._run(["-c", "user.name=smoke", "-c", "user.email=s@x",
+                 "commit", "-q", "-m", "seed"], check=False)
+        docsvc.repo = rr
+        docsvc.scan(force=True)
+
+        code, body, _ = c.get("/api/citadel/status")
+        st = json.loads(body)
+        check("repo status is served", code == 200 and st["ok"], st)
+        check("it reports the branch", bool(st["branch"]), st)
+        check("no remote is reported, not invented", st["remote"] is False)
+
+        code, body, _ = c.get("/api/citadel/edit/hst-pep")
+        src = json.loads(body)
+        check("the editor gets the source", code == 200 and "## What it is" in src["body"])
+        check("and the blob that identifies it", bool(src["blob"]), src.get("blob"))
+        check("and knows it is writable", src["writable"] is True, src.get("why"))
+        check("front matter is handed over separately",
+              "shelf" in src["front_matter"] and "+++" not in src["front_matter"])
+
+        code, body, _ = c.post_json("/api/citadel/save", {
+            "slug": "hst-pep", "body": src["body"] + "\n## Added\n\nBy the test.\n",
+            "title": "pepper", "owner": "smoke", "verified": "2026-11-09",
+            "review": "6 months", "blob": src["blob"],
+            "summary": "Add a section from the test"})
+        saved = json.loads(body)
+        check("a save commits", code == 200 and saved["sha"], body[:160])
+        check("and returns the new blob", saved["blob"] != src["blob"])
+
+        code, body, _ = c.get("/api/citadel/record/hst-pep")
+        check("the change is served back", "Added" in json.loads(body)["html"])
+
+        code, body, _ = c.get("/api/citadel/history/hst-pep")
+        h = json.loads(body)
+        check("history is per record", code == 200 and len(h["commits"]) >= 1)
+        # Not the display name, not a configured identity: the account that
+        # pressed save. That is what makes git log an audit trail.
+        check("the commit carries the signed-in user",
+              h["commits"][0]["author"] == "tester", h["commits"][0])
+        check("and an email derived from it",
+              h["commits"][0]["email"] == "tester@elasticgroup.co.uk",
+              h["commits"][0]["email"])
+        check("and the summary typed into the editor",
+              h["commits"][0]["summary"] == "Add a section from the test")
+
+        code, body, _ = c.post_json("/api/citadel/save", {
+            "slug": "hst-pep", "body": "## Mine\n", "blob": src["blob"],
+            "summary": "Stale blob"})
+        conflict = json.loads(body)
+        check("saving against a stale blob is a 409", code == 409, code)
+        check("the 409 carries their version",
+              "Added" in conflict.get("theirs", ""), list(conflict))
+        check("and names both blobs",
+              conflict["expected"] == src["blob"] and conflict["actual"])
+        code, body, _ = c.get("/api/citadel/record/hst-pep")
+        check("nothing was written during the conflict",
+              "Mine" not in json.loads(body)["html"])
+
+        code, body, _ = c.post_json("/api/citadel/save", {
+            "slug": "hst-pep", "body": "x", "blob": saved["blob"],
+            "summary": "   "})
+        check("a save with no summary is refused", code == 400, code)
+
+        code, body, _ = c.post_json("/api/citadel/save", {
+            "slug": "nope-nope", "body": "x", "summary": "s"})
+        check("saving an unknown record is refused", code == 400, code)
+
+        before = len(json.loads(c.get("/api/citadel/summary")[1])["counts"]) and             json.loads(c.get("/api/citadel/summary")[1])["records"]
+        code, body, _ = c.post_json("/api/citadel/create",
+                                    {"kind": "host", "key": "cinnamon"})
+        made = json.loads(body)
+        check("an undocumented object can be scaffolded", code == 200, body[:160])
+        check("the shelf mark is derived", made["shelf"].startswith("HST."), made)
+        after = json.loads(c.get("/api/citadel/summary")[1])["records"]
+        check("the catalogue grew", after == before + 1, (before, after))
+        code, body, _ = c.get("/api/citadel/record/" + made["slug"])
+        new = json.loads(body)
+        check("the scaffold bound it to the live host",
+              new["bind"].get("host") == "cinnamon", new.get("bind"))
+        check("the template headings are there, empty",
+              "If it dies" in new["html"])
+        code, _, _ = c.post_json("/api/citadel/create",
+                                 {"kind": "host", "key": "cinnamon"})
+        check("creating it twice is refused", code == 409, code)
+        code, _, _ = c.post_json("/api/citadel/create",
+                                 {"kind": "wat", "key": "x"})
+        check("an unknown kind is refused", code == 400, code)
+
+        code, _, _ = c.post_json("/api/citadel/archive",
+                                 {"slug": made["slug"], "reason": "test"})
+        check("a record can be archived", code == 200, code)
+        check("and is gone from the catalogue",
+              c.get("/api/citadel/record/" + made["slug"])[0] == 404)
+
+        code, body, _ = c.get("/api/citadel/activity")
+        acts = json.loads(body)["commits"]
+        check("the activity log has the writes", code == 200 and len(acts) >= 3)
+        check("each carries how it arrived",
+              {a["via"] for a in acts} <= {"browser", "scaffold", "git",
+                                           "migration"},
+              {a["via"] for a in acts})
+        check("writes start unpushed",
+              any(not a["pushed"] for a in acts))
+
+        code, body, _ = c.post_json("/api/citadel/push", {})
+        check("pushing with no remote fails loudly, not silently",
+              code == 502 and "remote" in json.loads(body)["detail"], body[:120])
+
+        md_src = chr(10).join(["## P", "", "See [[RUN.PEP]] and [[NO.PE]]."])
+        code, body, _ = c.post_json("/api/citadel/preview", {"body": md_src})
+        pv = json.loads(body)
+        check("preview renders through the same code path as a save",
+              code == 200 and "<h3>P</h3>" in pv["html"], body[:120])
+        check("preview reports unresolved links before you commit them",
+              any(not x["resolved"] for x in pv["links"]), pv["links"])
+        check("preview escapes raw html too",
+              "&lt;script&gt;" in json.loads(
+                  c.post_json("/api/citadel/preview",
+                              {"body": "<script>x</script>"})[1])["html"])
+
+        code, _, _ = Client(base).post_json("/api/citadel/save", {"slug": "x"})
+        check("writing needs a session", code == 401, code)
+        code, _, _ = Client(base).get("/api/citadel/status")
+        check("repo status needs a session too", code == 401, code)
+
+    print("\ncitadel \u2014 findings reach the notifier")
+    engine.docs = docsvc
+    sent = []
+    _real_send = engine.note.send
+    engine.note.send = lambda *a, **k: sent.append(a)
+    try:
+        engine.sweep_docs()
+    finally:
+        engine.note.send = _real_send
+
+    names = {r["name"] for r in store.all_state() if r["kind"] == "docs"}
+    check("every finding kind is registered as a check",
+          names == {v[0] for v in citadel.CHECKS.values()},
+          names ^ {v[0] for v in citadel.CHECKS.values()})
+
+    down = {r["name"]: r for r in store.all_state()
+            if r["kind"] == "docs" and r["status"] == "down"}
+    check("the stale runbook is down",
+          citadel.CHECKS["unverified-runbook"][0] in down, sorted(down))
+    check("the broken cross-reference is down",
+          citadel.CHECKS["broken-link"][0] in down, sorted(down))
+    check("a category with nothing wrong is up, not missing",
+          store.get(citadel.CHECKS["live-source"][0])["status"] == "up")
+    check("the detail names the record",
+          "RUN.PEP" in (down[citadel.CHECKS["unverified-runbook"][0]]["detail"]
+                        or ""),
+          down[citadel.CHECKS["unverified-runbook"][0]]["detail"])
+
+    paged = [a for a in sent if len(a) > 2 and a[2] == "page"]
+    check("something paged", paged, [a[:3] for a in sent])
+    check("only the two page-level kinds did",
+          {a[0] for a in paged} <= {citadel.CHECKS["unverified-runbook"][0],
+                                    citadel.CHECKS["live-source"][0]},
+          {a[0] for a in paged})
+    check("the quiet kinds were sent quietly",
+          all(a[2] == "quiet" for a in sent
+              if a[0] == citadel.CHECKS["stale"][0]))
+
+    sent2 = []
+    engine.note.send = lambda *a, **k: sent2.append(a)
+    try:
+        engine.sweep_docs()
+    finally:
+        engine.note.send = _real_send
+    check("a second sweep with nothing changed says nothing",
+          sent2 == [], sent2)
+
+    print("\nan accepted risk is recorded, never sent")
+    # broken-link, not stale: this fixture has a genuinely broken
+    # cross-reference, so there is a real transition to hold back. A category
+    # with nothing wrong would pass this test without proving anything.
+    ACC = citadel.CHECKS["broken-link"][0]
+    engine.accepted[ACC] = {"reason": "we know", "review": "2027-01-31"}
+    store.update(ACC, status="up")
+    sent3 = []
+    engine.note.send = lambda *a, **k: sent3.append(a)
+    try:
+        engine.sweep_docs()
+    finally:
+        engine.note.send = _real_send
+    held = [a for a in sent3 if a[0] == ACC]
+    check("the accepted category still transitions",
+          store.get(ACC)["status"] == "down", store.get(ACC)["status"])
+    check("but it is held, with the reason",
+          held and held[0][2] == "quiet" and "we know" in str(held[0][-1]),
+          held)
 
     print("\nsigning out")
     code, _, hdr = c.post_form("/logout", {})
