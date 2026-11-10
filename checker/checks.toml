@@ -297,7 +297,7 @@ target = "https://10.10.1.92/"
 
 [[jobs]]
 name = "Nightly machine backup"
-token = "f9P_ncq7U4ydqDCtMDc-K-ot"
+token = "i_iNPmlcYYkcW2Kzy3OLMKV_"
 grace_hours = 26
 severity = "page"
 
@@ -306,32 +306,32 @@ severity = "page"
 # catch. install-collector.sh derives the token from the hostname.
 [[jobs]]
 name = "Collector — pepper"
-token = "vRyRHeV5tsM4OegfrVYQ8TO_"
+token = "yahMdd3SjIX2mQVyieU_vBGx"
 grace_hours = 26
 
 [[jobs]]
 name = "Collector — cinnamon"
-token = "y5BnazHj-MV9Jz6ppT8TGs9r"
+token = "t25CksfYuntxZqK8CG8fCQMC"
 grace_hours = 26
 
 [[jobs]]
 name = "Collector — proxmox"
-token = "pQ_SDDrlkWZlQRs-rK2_NP8m"
+token = "XDJlEFD12j3vJ8MaYOQDCUL1"
 grace_hours = 26
 
 [[jobs]]
 name = "Collector — yam"
-token = "5yQFaGREJlXOKhtcxBTFueRi"
+token = "TO_CZYGBu4oLbpTHjIlv-f25"
 grace_hours = 26
 
 [[jobs]]
 name = "Collector — networkserver"
-token = "W7frgPRe4z4nd-qXTP_irlcc"
+token = "gBPkcla4XSUUOpFBUUaFnY2F"
 grace_hours = 26
 
 [[jobs]]
 name = "Backup store verify"
-token = "nh7GKDhs9EXNElBSmkhMS0GO"
+token = "1WjaIX3KAfCGyLzQhlu5DpQC"
 grace_hours = 192          # weekly, so 8 days
 
 # Stopped 9 July 2026 when the old BackupServer was decommissioned. Left here
@@ -345,7 +345,7 @@ grace_hours = 192          # weekly, so 8 days
 # worst one.
 [[jobs]]
 name = "SQL dumps (needs rehoming — see checks.toml)"
-token = "JvaZgHsMhktHNxLyjP4_JJbr"
+token = "cN70lsKrlxcLLi_jmwlw6adN"
 grace_hours = 26
 severity = "notify"
 
